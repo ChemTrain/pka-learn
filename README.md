@@ -1,3 +1,5 @@
+<img src="logo.svg" alt="ChemTrain logo" height="110" align="right">
+
 # pKa Learn
 
 pKa Learn is a Quizlet-style trainer for the pKa values of organic acids and bases. Everything is in one HTML file.
@@ -36,5 +38,6 @@ GitHub's **Cite this repository** button (from `CITATION.cff`) gives the same re
 
 - Code (the HTML, CSS and JavaScript): [MIT](LICENSE).
 - Content (the card sets, questions, notes and Most acidic molecules): [CC BY 4.0](LICENSE-CONTENT.md). You may reuse and adapt it, as long as you credit pKa Learn.
+- Logo (`logo.svg`): the locomotive is adapted from [Twemoji](https://github.com/jdecked/twemoji), © Twitter, Inc and other contributors, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the benzene-ring smoke was added for ChemTrain.
 
 The pKa values are measurements by others; please cite their sources (above) as well.

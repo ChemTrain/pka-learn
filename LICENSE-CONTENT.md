@@ -12,4 +12,6 @@ and say if you changed anything.
 
 The pKa values themselves are measurements published by others, mostly in the Evans pKa table (D. H. Ripin and D. A. Evans, ACS Organic Division). This license does not cover them; please cite those sources when you use the values.
 
+The ChemTrain logo (`logo.svg`, also drawn in the page header and footer) adapts the steam locomotive from [Twemoji](https://github.com/jdecked/twemoji), © Twitter, Inc and other contributors, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the benzene-ring smoke was added for ChemTrain. If you reuse the logo, credit Twemoji as well.
+
 The code is under the MIT license; see `LICENSE`.
