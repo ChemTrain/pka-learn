@@ -13,6 +13,7 @@ You can also download `pka_quiz.html` and open it in any browser.
 - A Learn mode (multiple choice, then typed answers), flashcards, and space for your own cards or a Quizlet export
 - Rank: deal 5, 10 or 15 cards from a set and put them in order, lowest pKa first
 - Most acidic: 29 molecules with two to four labelled protons; pick the most acidic one, then see the pKa of each
+- Easy and Hard levels: on Easy, the values you compare are always at least 5 pKa units apart
 
 ## Sources
 

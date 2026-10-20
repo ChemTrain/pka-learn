@@ -245,6 +245,8 @@ textarea { width: 100%; min-height: 260px; padding: 12px; border: 1px solid var(
 .seg button[disabled] { opacity: .4; cursor: not-allowed; }
 .seg-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .seg-row .lab { font-size: 13px; color: var(--muted); }
+.seg.wide { display: flex; }
+.seg.wide button { flex: 1; }
 
 /* rank */
 .rank-axis { display: grid; gap: 5px; }
@@ -313,12 +315,20 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
         <h2 class="side-h" id="acidic-h">Molecules</h2>
         <div class="stack">
           <div class="sets" id="ac-lists"></div>
+          <div class="field">Difficulty
+            <div class="seg wide" role="group" aria-label="Difficulty"><button type="button" data-level="easy">Easy</button><button type="button" data-level="hard">Hard</button></div>
+            <span>Easy leaves out molecules whose two most acidic protons are less than 5 pKa units apart.</span>
+          </div>
           <p class="help">Values marked ≈ are estimates from a simple model compound; the others are measured. Each molecule uses one scale: water, unless DMSO is shown.</p>
         </div>
       </section>
       <section id="side-opts" aria-labelledby="opts-h">
         <h2 class="side-h" id="opts-h">Options</h2>
         <div class="opts">
+          <div class="field">Difficulty
+            <div class="seg wide" role="group" aria-label="Difficulty"><button type="button" data-level="easy">Easy</button><button type="button" data-level="hard">Hard</button></div>
+            <span>Easy keeps multiple-choice answers, and the cards in Rank, at least 5 pKa units apart.</span>
+          </div>
           <label class="field">Questions
             <select id="opt-qtype">
               <option value="mixed">Multiple choice, then typed</option>
@@ -497,7 +507,7 @@ function setSolvent(s) {
 }
 
 /* ---------- state ---------- */
-const settings = Object.assign({ qtype: 'mixed', dir: 'value', tol: 1, shuffle: true, structs: true },
+const settings = Object.assign({ qtype: 'mixed', dir: 'value', tol: 1, shuffle: true, structs: true, level: 'hard' },
   store.get('pka.settings') || {}, store.get('pka2.settings') || {});
 let active = null, levels = {}, roundNo = 1;
 let order = [], round = null, cur = null, phase = 'question', view = 'learn';
@@ -547,6 +557,44 @@ function startRound() {
   buildQuestion(round.queue[0]);
 }
 
+/* ---------- difficulty ---------- */
+const EASY_GAP = 5;  // on Easy, values shown side by side are at least this far apart
+// The most cards whose values can all be at least gap apart (greedy is optimal on a line).
+function spreadRoom(cards, gap) {
+  const v = cards.map(c => toNum(c.answer)).filter(x => x !== null).sort((a, b) => a - b);
+  let n = 0, last = -Infinity;
+  for (const x of v) if (x >= last + gap - 1e-9) { n++; last = x; }
+  return n;
+}
+// A uniformly random set of up to n cards whose values are pairwise at least gap apart.
+function spreadPick(cards, n, gap) {
+  const s = cards.filter(c => toNum(c.answer) !== null).sort((x, y) => toNum(x.answer) - toNum(y.answer));
+  const v = s.map(c => toNum(c.answer)), N = s.length;
+  n = Math.min(n, spreadRoom(s, gap));
+  const next = v.map((x, i) => { let j = i + 1; while (j < N && v[j] < x + gap - 1e-9) j++; return j; });
+  // ways[i][k]: number of valid k-card sets drawn from s[i..]
+  const ways = Array.from({ length: N + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = N; i >= 0; i--) {
+    ways[i][0] = 1;
+    if (i < N) for (let k = 1; k <= n; k++) ways[i][k] = ways[i + 1][k] + ways[next[i]][k - 1];
+  }
+  const out = [];
+  for (let i = 0, k = n; k > 0 && i < N; ) {
+    if (Math.random() * ways[i][k] < ways[next[i]][k - 1]) { out.push(s[i]); i = next[i]; k--; }
+    else i++;
+  }
+  return shuffle(out);
+}
+function setLevel(level) {
+  if (level === settings.level) return;
+  settings.level = level; saveSettings(); syncLevel();
+  refreshQuestion(); rankDeal(); acDeal(); renderAcSide();
+}
+function syncLevel() {
+  for (const b of document.querySelectorAll('.seg [data-level]')) b.setAttribute('aria-pressed', String(b.dataset.level === settings.level));
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-level]'); if (b) setLevel(b.dataset.level); });
+
 function distractors(card, n, byTerm) {
   const vals = valuesOf(card);
   const clash = c => norm(c.answer) === norm(card.answer) || valuesOf(c).some(x => vals.some(v => Math.abs(x - v) < 0.2));
@@ -560,6 +608,12 @@ function distractors(card, n, byTerm) {
   }
   const a = toNum(card.answer);
   if (a === null) return pool.slice(0, n);
+  if (settings.level === 'easy') {
+    // fewer choices rather than any closer than EASY_GAP to the answer or to each other
+    const far = pool.filter(c => toNum(c.answer) !== null && Math.abs(toNum(c.answer) - a) >= EASY_GAP);
+    const pick = spreadPick(far, n, EASY_GAP);
+    if (pick.length) return pick;
+  }
   const dist = c => { const v = toNum(c.answer); return v === null ? 999 : Math.abs(v - a); };
   const near = shuffle(pool.slice().sort((x, y) => dist(x) - dist(y)).slice(0, 8)).slice(0, 2);
   const rest = shuffle(pool.filter(c => !near.includes(c)));
@@ -923,17 +977,21 @@ function rankPool(s) {
 }
 
 function rankDeal() {
-  const { cards: pool, solvent } = rankPool(active);
-  Object.assign(rk, { pool: pool.length, solvent, checked: false, show: 'yours', picked: null });
-  const n = RANK_SIZES.filter(s => s <= pool.length && s <= rk.n).pop() || 0;
-  let pick = [];
-  for (const gap of [1, 0.5, 0.2, 0]) {  // prefer values that are not too close to call
+  const { cards, solvent } = rankPool(active);
+  const names = new Set(), pool = [];
+  for (const c of cards) if (!names.has(norm(c.term))) { names.add(norm(c.term)); pool.push(c); }
+  const easy = settings.level === 'easy';
+  // how many cards this set can deal at once
+  const room = easy ? spreadRoom(pool, EASY_GAP) : pool.length;
+  Object.assign(rk, { pool: pool.length, room, solvent, checked: false, show: 'yours', picked: null });
+  const n = RANK_SIZES.filter(s => s <= room && s <= rk.n).pop() || 0;
+  let pick = easy ? spreadPick(pool, n, EASY_GAP) : [];
+  if (!easy) for (const gap of [1, 0.5, 0.2, 0]) {  // prefer values that are not too close to call
     pick = [];
-    const names = new Set();
     for (const c of shuffle(pool)) {
       const v = toNum(c.answer);
-      if (names.has(norm(c.term)) || pick.some(p => Math.abs(toNum(p.answer) - v) < gap)) continue;
-      names.add(norm(c.term)); pick.push(c);
+      if (pick.some(p => Math.abs(toNum(p.answer) - v) < gap)) continue;
+      pick.push(c);
       if (pick.length === n) break;
     }
     if (pick.length === n) break;
@@ -979,22 +1037,32 @@ function rankTile(k, i, sc) {
 function renderRank(animate) {
   const el = $('#rank'), isBase = active.kind === 'base';
   if (!rk.cards.length) {
+    const spread = settings.level === 'easy' && rk.pool >= RANK_SIZES[0];  // enough cards, but not far enough apart
+    const why = spread
+      ? `On Easy the cards must be at least ${EASY_GAP} pKa units apart, and this set only has room for ${rk.room}. Switch to Hard, or pick another set.`
+      : `Ranking needs at least ${RANK_SIZES[0]} cards with a numeric pKa${rk.solvent ? ' in the same solvent' : ''}. This set has ${rk.pool}.`;
+    const action = spread ? '<button type="button" class="btn" data-level="hard">Switch to Hard</button>'
+      : active.id === 'custom' ? '<button type="button" class="btn" data-goto="cards">Add cards</button>' : '';
     el.innerHTML = `<div class="panel"><div class="qhead"><p class="eyebrow">Rank · ${esc(active.name)}</p>
-        <h2 class="term">Not enough cards</h2>
-        <p class="ask">Ranking needs at least ${RANK_SIZES[0]} cards with a numeric pKa${rk.solvent ? ' in the same solvent' : ''}. This set has ${rk.pool}.</p></div>
-        ${active.id === 'custom' ? '<div class="row end"><button type="button" class="btn" data-goto="cards">Add cards</button></div>' : ''}
+        <h2 class="term">Not enough cards</h2><p class="ask">${why}</p></div>
+        ${action ? `<div class="row end">${action}</div>` : ''}
       </div>`;
     return;
   }
   const before = animate ? tileRects() : null;
   const n = rk.order.length, sc = rk.checked ? rankScore() : null;
-  const sizes = RANK_SIZES.map(s => `<button type="button" data-n="${s}" aria-pressed="${s === n}"${s > rk.pool ? ' disabled' : ''}>${s}</button>`).join('');
+  const easy = settings.level === 'easy';
+  const full = easy ? `Only ${rk.room} cards in this set can all be ${EASY_GAP} apart` : `This set has ${rk.pool} cards`;
+  const sizes = RANK_SIZES.map(s => `<button type="button" data-n="${s}" aria-pressed="${s === n}"${s > rk.room ? ` disabled title="${full}"` : ''}>${s}</button>`).join('');
+  const levels = `<div class="seg" role="group" aria-labelledby="rank-lv-lab">${['easy', 'hard'].map(l =>
+    `<button type="button" data-level="${l}" aria-pressed="${settings.level === l}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div>`;
   const views = rk.checked ? `<div class="seg" role="group" aria-label="Order shown">
       <button type="button" data-show="yours" aria-pressed="${rk.show === 'yours'}">Your order</button>
       <button type="button" data-show="right" aria-pressed="${rk.show === 'right'}">Correct order</button></div>` : '';
   const ask = isBase
     ? `Put these ${n} bases in order of the pKa of their conjugate acids, lowest first: the weakest base goes first.`
     : `Put these ${n} acids in order of pKa, lowest first: the strongest acid goes first.`;
+  const spacing = easy ? ` Their values are at least ${EASY_GAP} units apart.` : '';
   let result = '';
   if (sc) {
     const ties = new Set(sc.sorted).size < n;
@@ -1007,8 +1075,8 @@ function renderRank(animate) {
   el.innerHTML = `<div class="panel">
       <div class="qhead"><div class="qtop"><p class="eyebrow">Rank · ${esc(active.name)}</p>
         <div class="tags">${SOLVENT[rk.solvent] ? `<span class="solv">in ${SOLVENT[rk.solvent]}</span>` : ''}</div></div>
-        <h2 class="term">Lowest pKa first</h2><p class="ask">${ask}</p></div>
-      <div class="seg-row"><span class="lab" id="rank-n-lab">Cards</span><div class="seg" role="group" aria-labelledby="rank-n-lab">${sizes}</div>${views}</div>
+        <h2 class="term">Lowest pKa first</h2><p class="ask">${ask}${spacing}</p></div>
+      <div class="seg-row"><span class="lab" id="rank-lv-lab">Level</span>${levels}<span class="lab" id="rank-n-lab">Cards</span><div class="seg" role="group" aria-labelledby="rank-n-lab">${sizes}</div>${views}</div>
       ${result}
       <div class="rank-axis" aria-hidden="true"><i></i><div><span>1 · lowest pKa, ${isBase ? 'weakest base' : 'strongest acid'}</span><span>${n} · highest pKa</span></div></div>
       <div class="rgrid${rk.checked ? ' done' : ''}" id="rgrid">${seq.map((k, i) => rankTile(k, i, sc)).join('')}</div>
@@ -1160,7 +1228,8 @@ const LETTERS = 'abcd';
 const SITE_LISTS = (() => {
   const groups = (DATA.sites || []).map(g => ({ ...g, questions: g.questions.map(q => {
     const v = q.sites.map(s => parseFloat(s.p));
-    return { ...q, id: g.id + '|' + q.name, best: v.indexOf(Math.min(...v)) };
+    const sorted = v.slice().sort((a, b) => a - b);
+    return { ...q, id: g.id + '|' + q.name, best: v.indexOf(sorted[0]), gap: sorted[1] - sorted[0] };
   }) }));
   return [{ id: 'all', name: 'All molecules', desc: 'Every molecule, shuffled.', questions: groups.flatMap(g => g.questions) }, ...groups];
 })();
@@ -1172,8 +1241,10 @@ function acSelect(id) {
   store.set('pka2.acidic.list', ac.list.id);
   acDeal(); renderAcSide();
 }
+// on Easy, only molecules whose winner is at least EASY_GAP ahead of the runner-up
+const acPool = l => settings.level === 'easy' ? l.questions.filter(q => q.gap >= EASY_GAP) : l.questions;
 function acDeal() {
-  ac.deck = shuffle(ac.list.questions); ac.i = 0; ac.results = [];
+  ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = [];
   if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
 }
 function acBuild() {
@@ -1285,8 +1356,8 @@ function acSummaryHTML() {
 
 function renderAcSide() {
   $('#ac-lists').innerHTML = SITE_LISTS.map(l => {
-    const n = l.questions.length, right = l.questions.filter(q => acSeen[q.id] === 1).length;
-    const tried = l.questions.some(q => q.id in acSeen);
+    const qs = acPool(l), n = qs.length, right = qs.filter(q => acSeen[q.id] === 1).length;
+    const tried = qs.some(q => q.id in acSeen);
     return `<button type="button" class="set" data-list="${l.id}" aria-pressed="${l === ac.list}" title="${esc(l.desc)}">
         <span class="nm">${esc(l.name)}</span>
         <span class="meta"><span>${n} molecules</span><span>${tried ? `${right} right` : 'not tried'}</span></span>
@@ -1358,6 +1429,7 @@ document.addEventListener('keydown', e => {
 /* ---------- boot ---------- */
 selectSet(store.get('pka2.active') || 'core');
 acSelect(store.get('pka2.acidic.list') || 'all');
+syncLevel();
 const start = (location.hash || '').slice(1);
 show(VIEWS.includes(start) ? start : 'learn');
 </script>
