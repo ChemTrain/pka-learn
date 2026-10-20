@@ -1280,8 +1280,12 @@ function acSetTask(task) {
   ac.task = task; store.set('pka2.acidic.task', task);
   acDeal(); renderAcSide();
 }
-// Picking needs the winner levelGap() ahead of the runner-up; ranking needs every pair that far apart.
-const acPool = l => l.questions.filter(q => (ac.task === 'rank' ? q.minGap : q.gap) >= levelGap());
+// Picking needs the winner levelGap() ahead of the runner-up. Ranking takes molecules with three or
+// more labelled protons (with two it is the same as picking), every pair levelGap() apart.
+const AC_RANK_MIN = 3;
+const acPool = l => l.questions.filter(q => ac.task === 'rank'
+  ? q.sites.length >= AC_RANK_MIN && q.minGap >= levelGap()
+  : q.gap >= levelGap());
 function acDeal() {
   ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = [];
   if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
@@ -1421,7 +1425,13 @@ function acFeedback(c) {
 
 function renderAcidic() {
   const el = $('#acidic-box');
-  if (ac.phase === 'empty') { el.innerHTML = `<div class="panel">${acTaskRow()}<p class="help">No molecules in this list.</p></div>`; return; }
+  if (ac.phase === 'empty') {
+    const why = ac.task === 'rank'
+      ? `Ranking uses molecules with ${AC_RANK_MIN} or more labelled protons, all at least ${levelGap()} pKa unit${levelGap() === 1 ? '' : 's'} apart, and this list has none. Pick another list${settings.level === 'easy' ? ', or switch to Hard' : ''}.`
+      : 'No molecules in this list.';
+    el.innerHTML = `<div class="panel">${acTaskRow()}<p class="help">${why}</p>${settings.level === 'easy' && ac.task === 'rank' ? '<div class="row end"><button type="button" class="btn" data-level="hard">Switch to Hard</button></div>' : ''}</div>`;
+    return;
+  }
   if (ac.phase === 'summary') { el.innerHTML = acSummaryHTML(); return; }
   const c = ac.cur, q = c.q, done = acDone(c), n = c.order.length;
   const tags = (ac.streak >= 2 ? `<span class="pill" data-l="3">${ac.streak} in a row</span>` : '');
