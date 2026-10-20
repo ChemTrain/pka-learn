@@ -252,7 +252,11 @@ textarea { width: 100%; min-height: 260px; padding: 12px; border: 1px solid var(
 .stack { display: grid; gap: 14px; min-width: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* five tabs: let them scroll sideways on a phone (min-width stops the strip from widening the page) */
+/* two tab groups, Practice and Review; on a phone they wrap, and each strip may scroll sideways
+   (min-width stops a strip from widening the page) */
+.modes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; min-width: 0; max-width: 100%; }
+.mode-group { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.mode-h { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .top { min-width: 0; }
 .tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -309,18 +313,33 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
 .smol .best .bv { fill: var(--good); } .smol .wrong .bv { fill: var(--bad); }
 .smol .other .badge { stroke: var(--muted); } .smol .other .bl { fill: var(--muted); }
 .opt .val .site-what { font-weight: 500; }
+.smol .ranked .badge { fill: var(--accent); stroke: var(--accent); }
+.smol .ranked .bl { fill: var(--accent-ink); }
+.smol .halo.ranked { fill: var(--accent-soft); }
+.smol .bv.rk { fill: var(--accent); font-size: 9.5px; }
+.opt.ranked { border-color: var(--accent); background: var(--accent-soft); }
+.opt .slot { margin-left: auto; padding-left: 8px; font: 600 13px var(--f-mono); color: var(--accent); white-space: nowrap; }
+.opt.correct .slot { color: var(--good); } .opt.wrong .slot { color: var(--bad); }
 .approx { font: 600 14px var(--f-mono); color: var(--muted); margin-right: 3px; }
 </style>
 
 <div class="wrap">
   <header class="top">
     <h1>pKa <span>Learn</span></h1>
-    <nav class="tabs" role="tablist" aria-label="Study mode">
-      <button id="tab-learn" role="tab" aria-selected="true" aria-controls="view-learn" data-view="learn">Learn</button>
-      <button id="tab-flashcards" role="tab" aria-selected="false" aria-controls="view-flashcards" data-view="flashcards">Flashcards</button>
-      <button id="tab-rank" role="tab" aria-selected="false" aria-controls="view-rank" data-view="rank">Rank</button>
-      <button id="tab-acidic" role="tab" aria-selected="false" aria-controls="view-acidic" data-view="acidic">Most acidic</button>
-      <button id="tab-cards" role="tab" aria-selected="false" aria-controls="view-cards" data-view="cards">Cards</button>
+    <nav class="modes" role="tablist" aria-label="Mode">
+      <div class="mode-group" role="none"><span class="mode-h" aria-hidden="true">Practice</span>
+        <div class="tabs" role="none">
+          <button id="tab-learn" role="tab" aria-selected="true" aria-controls="view-learn" data-view="learn">Learn</button>
+          <button id="tab-rank" role="tab" aria-selected="false" aria-controls="view-rank" data-view="rank">Rank</button>
+          <button id="tab-acidic" role="tab" aria-selected="false" aria-controls="view-acidic" data-view="acidic">Most acidic</button>
+        </div>
+      </div>
+      <div class="mode-group" role="none"><span class="mode-h" aria-hidden="true">Review</span>
+        <div class="tabs" role="none">
+          <button id="tab-flashcards" role="tab" aria-selected="false" aria-controls="view-flashcards" data-view="flashcards">Flashcards</button>
+          <button id="tab-cards" role="tab" aria-selected="false" aria-controls="view-cards" data-view="cards">Cards</button>
+        </div>
+      </div>
     </nav>
   </header>
 
@@ -356,7 +375,7 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
       </div>
     </div>
     <div class="optfoot">
-      <p class="help">Easy keeps the values you compare at least 5 pKa units apart: answer choices in Learn, cards in Rank, the top two protons in Most acidic. A card is mastered after two correct answers in a row; progress is saved in this browser.</p>
+      <p class="help">Easy keeps the values you compare at least 5 pKa units apart: answer choices in Learn, cards in Rank, the protons you compare in Most acidic. A card is mastered after two correct answers in a row; progress is saved in this browser.</p>
       <div data-for="learn flashcards cards"><button class="btn ghost small" id="reset-progress" type="button">Reset progress for this set</button></div>
     </div>
   </section>
@@ -1257,40 +1276,69 @@ const LETTERS = 'abcd';
 const SITE_LISTS = (() => {
   const groups = (DATA.sites || []).map(g => ({ ...g, questions: g.questions.map(q => {
     const v = q.sites.map(s => parseFloat(s.p));
-    const sorted = v.slice().sort((a, b) => a - b);
-    return { ...q, id: g.id + '|' + q.name, best: v.indexOf(sorted[0]), gap: sorted[1] - sorted[0] };
+    const sorted = v.slice().sort((a, b) => a - b), steps = sorted.slice(1).map((x, i) => x - sorted[i]);
+    // gap: the winner's lead over the runner-up; minGap: the closest pair, which is what makes ranking hard
+    return { ...q, id: g.id + '|' + q.name, best: v.indexOf(sorted[0]), gap: steps[0], minGap: Math.min(...steps) };
   }) }));
   return [{ id: 'all', name: 'All molecules', desc: 'Every molecule, shuffled.', questions: groups.flatMap(g => g.questions) }, ...groups];
 })();
-const ac = { list: null, deck: [], i: 0, cur: null, phase: 'question', results: [], streak: 0 };
-const acSeen = store.get('pka2.acidic') || {};  // question id -> 1 if the last answer was right, else 0
+const AC_TASKS = { pick: 'Pick the most acidic', rank: 'Rank them all' };
+const ac = { list: null, task: store.get('pka2.acidic.task') === 'rank' ? 'rank' : 'pick', deck: [], i: 0, cur: null, phase: 'question', results: [], streak: 0 };
+const acSeen = store.get('pka2.acidic') || {};  // question id (prefixed "rank|" for ranking) -> 1 if the last answer was right, else 0
+const seenKey = q => (ac.task === 'rank' ? 'rank|' : '') + q.id;
+const ORDINAL = ['1st', '2nd', '3rd', '4th'];
 
 function acSelect(id) {
   ac.list = SITE_LISTS.find(l => l.id === id) || SITE_LISTS[0];
   store.set('pka2.acidic.list', ac.list.id);
   acDeal(); renderAcSide();
 }
-// on Easy, only molecules whose winner is at least EASY_GAP ahead of the runner-up
-const acPool = l => settings.level === 'easy' ? l.questions.filter(q => q.gap >= EASY_GAP) : l.questions;
+function acSetTask(task) {
+  if (task === ac.task) return;
+  ac.task = task; store.set('pka2.acidic.task', task);
+  acDeal(); renderAcSide();
+}
+// On Easy, picking needs the winner EASY_GAP ahead of the runner-up; ranking needs every pair that far apart.
+const acPool = l => settings.level !== 'easy' ? l.questions
+  : l.questions.filter(q => (ac.task === 'rank' ? q.minGap : q.gap) >= EASY_GAP);
 function acDeal() {
   ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = [];
   if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
 }
 function acBuild() {
   const q = ac.deck[ac.i];
-  ac.cur = { q, order: shuffle(q.sites.map((_, s) => s)), chosen: null };  // letter j labels site order[j]
+  // letter j labels site order[j]; seq holds letters in the order the player ranked them
+  ac.cur = { q, task: ac.task, order: shuffle(q.sites.map((_, s) => s)), chosen: null, seq: [], checked: false };
   ac.phase = 'question';
   renderAcidic();
 }
-function acChoose(j) {
-  const c = ac.cur;
-  if (ac.phase !== 'question' || !c || c.chosen !== null || !(j >= 0 && j < c.order.length)) return;
-  c.chosen = j; c.ok = c.order[j] === c.q.best;
+const acDone = c => c.chosen !== null || c.checked;
+const siteP = (c, j) => parseFloat(c.q.sites[c.order[j]].p);
+
+function acRecord(c) {
   ac.results.push({ q: c.q, ok: c.ok });
   ac.streak = c.ok ? ac.streak + 1 : 0;
-  acSeen[c.q.id] = c.ok ? 1 : 0; store.set('pka2.acidic', acSeen);
+  acSeen[seenKey(c.q)] = c.ok ? 1 : 0; store.set('pka2.acidic', acSeen);
   renderAcidic(); renderAcSide();
   const b = $('#ac-next'); if (b) b.focus({ preventScroll: true });
+}
+function acTap(j, refocus) {
+  const c = ac.cur;
+  if (ac.phase !== 'question' || !c || acDone(c) || !(j >= 0 && j < c.order.length)) return;
+  if (c.task === 'pick') { c.chosen = j; c.ok = c.order[j] === c.q.best; return acRecord(c); }
+  const k = c.seq.indexOf(j);  // ranking: a tap adds the proton next, a second tap takes it out
+  if (k >= 0) c.seq.splice(k, 1); else c.seq.push(j);
+  renderAcidic();
+  if (refocus) { const b = $(`#acidic .opt[data-j="${j}"]`); if (b) b.focus({ preventScroll: true }); }
+}
+function acCheck() {
+  const c = ac.cur, n = c.order.length;
+  if (ac.phase !== 'question' || c.task !== 'rank' || c.checked || c.seq.length < n - 1) return;
+  if (c.seq.length === n - 1) c.seq.push(c.order.findIndex((_, j) => !c.seq.includes(j)));  // the last one goes last
+  const right = c.seq.map(j => siteP(c, j)).sort((a, b) => a - b);
+  c.place = c.seq.map((j, i) => siteP(c, j) === right[i]);  // equal values may swap
+  c.ok = c.place.every(Boolean); c.checked = true;
+  acRecord(c);
 }
 function acNext() {
   ac.i++;
@@ -1299,22 +1347,36 @@ function acNext() {
   const b = $('#ac-again'); if (b) b.focus({ preventScroll: true });
 }
 const siteValue = s => `${s.est ? '<span class="approx">≈</span>' : ''}${chip(s.p)}`;
+// 1-based rank of letter j by pKa (ties share the first rank)
+const trueRank = (c, j) => c.order.map((_, i) => siteP(c, i)).sort((a, b) => a - b).indexOf(siteP(c, j)) + 1;
+
+// How one proton is drawn: badge colour class and the text beside the badge.
+function siteView(c, s) {
+  const q = c.q, j = c.order.indexOf(s), site = q.sites[s];
+  const value = (site.est ? '≈' : '') + fmt(site.p);
+  if (c.task === 'rank') {
+    const pos = c.seq.indexOf(j);
+    if (!c.checked) return { cls: pos >= 0 ? ' pick ranked' : ' pick', text: pos >= 0 ? ORDINAL[pos] : '', value };
+    return { cls: c.place[pos] ? ' best' : ' wrong', text: value, value };
+  }
+  if (c.chosen === null) return { cls: ' pick', text: '', value };
+  return { cls: s === q.best ? ' best' : j === c.chosen ? ' wrong' : ' other', text: value, value };
+}
 
 // The structure with a halo on each candidate proton and a letter badge just
-// beyond it, along the X–H bond. Once answered, each badge gets its pKa.
+// beyond it, along the X–H bond. Beside each badge: its rank while ranking, its pKa once answered.
 function siteSVG(c, maxScale, maxH, maxW) {
-  const q = c.q, done = c.chosen !== null, [w, h, pts, body] = q.mol;
+  const q = c.q, done = acDone(c), [w, h, pts, body] = q.mol;
   const R = 10.5, BR = 7.5, OFF = 19, FS = 8.5;
   let x0 = 0, y0 = 0, x1 = w, y1 = h;
   const grow = (a, b, cc, d) => { x0 = Math.min(x0, a); y0 = Math.min(y0, b); x1 = Math.max(x1, cc); y1 = Math.max(y1, d); };
   let halos = '', marks = '';
   pts.forEach(([hx, hy, dx, dy], s) => {
-    const j = c.order.indexOf(s), site = q.sites[s];
-    const state = !done ? ' pick' : s === q.best ? ' best' : j === c.chosen ? ' wrong' : ' other';
+    const j = c.order.indexOf(s), { cls, text, value } = siteView(c, s);
     const bx = hx + dx * OFF, by = hy + dy * OFF;
     grow(bx - BR - 1, by - BR - 1, bx + BR + 1, by + BR + 1);
-    // room for the value is kept before answering too, so the drawing does not jump
-    const txt = (site.est ? '≈' : '') + fmt(site.p), tw = txt.length * FS * 0.62;
+    // room for the value is kept from the start, so the drawing does not jump
+    const tw = value.length * FS * 0.62;
     let tx, ty, anchor;
     if (Math.abs(dx) >= 0.45) {
       anchor = dx > 0 ? 'start' : 'end'; tx = bx + Math.sign(dx) * (BR + 2.5); ty = by + FS * 0.35;
@@ -1323,49 +1385,81 @@ function siteSVG(c, maxScale, maxH, maxW) {
       anchor = 'middle'; tx = bx; ty = dy > 0 ? by + BR + FS + 1 : by - BR - 3;
       grow(tx - tw / 2, ty - FS * 0.8, tx + tw / 2, ty + FS * 0.3);
     }
-    halos += `<circle class="halo${state}" data-j="${j}" cx="${hx}" cy="${hy}" r="${R}"/>` + (done ? '' : `<circle class="ring" cx="${hx}" cy="${hy}" r="${R}"/>`);
-    marks += `<g class="site${state}" data-j="${j}"><circle class="badge" cx="${bx}" cy="${by}" r="${BR}"/>`
+    halos += `<circle class="halo${cls}" data-j="${j}" cx="${hx}" cy="${hy}" r="${R}"/>` + (done ? '' : `<circle class="ring" cx="${hx}" cy="${hy}" r="${R}"/>`);
+    marks += `<g class="site${cls}" data-j="${j}"><circle class="badge" cx="${bx}" cy="${by}" r="${BR}"/>`
       + `<text class="bl" x="${bx}" y="${by + 3.3}" text-anchor="middle">${LETTERS[j]}</text>`
-      + (done ? `<text class="bv" x="${tx}" y="${ty}" text-anchor="${anchor}">${esc(txt)}</text>` : '') + '</g>';
+      + (text ? `<text class="bv${done ? '' : ' rk'}" x="${tx}" y="${ty}" text-anchor="${anchor}">${esc(text)}</text>` : '') + '</g>';
   });
   x0 -= 2; y0 -= 2; x1 += 2; y1 += 2;
   const W = x1 - x0, H = y1 - y0, s = Math.min(maxScale, maxH / H, maxW / W);
   return `<svg class="mol smol" viewBox="${x0} ${y0} ${W} ${H}" width="${Math.round(W * s)}" height="${Math.round(H * s)}" role="img" aria-label="Structure of ${esc(q.name)} with ${pts.length} labelled protons">${halos}${body}${marks}</svg>`;
 }
 
+const acTaskRow = () => `<div class="seg-row"><span class="lab" id="ac-task-lab">Task</span>
+    <div class="seg" role="group" aria-labelledby="ac-task-lab">${Object.entries(AC_TASKS).map(([k, t]) =>
+      `<button type="button" data-task="${k}" aria-pressed="${ac.task === k}">${t}</button>`).join('')}</div></div>`;
+
+function acOption(c, s, j) {
+  const site = c.q.sites[s], done = acDone(c);
+  let cls = 'opt' + (done ? ' rich' : ''), slot = '';
+  if (c.task === 'rank') {
+    const pos = c.seq.indexOf(j);
+    if (!done) { if (pos >= 0) { cls += ' ranked'; slot = ORDINAL[pos]; } }
+    else {
+      const ok = c.place[pos];
+      cls += ok ? ' correct' : ' wrong';
+      slot = ok ? `${ORDINAL[pos]} ✓` : `→ ${ORDINAL[trueRank(c, j) - 1]}`;  // where it belongs; the feedback lists the player's order
+    }
+  } else if (done) cls += s === c.q.best ? ' correct' : j === c.chosen ? ' wrong' : '';
+  const val = done
+    ? `<span class="val"><span class="site-what">${esc(site.what)}</span><span>${siteValue(site)}</span></span>`
+    : `<span class="val">${esc(site.on)}–H</span>`;
+  return `<button type="button" class="${cls}" data-j="${j}"${done ? ' disabled' : ''}><span class="key">${LETTERS[j]}</span>${val}${slot ? `<span class="slot">${slot}</span>` : ''}</button>`;
+}
+
+function acFeedback(c) {
+  const q = c.q;
+  let lines;
+  if (c.task === 'rank') {
+    const sorted = c.order.map((_, j) => j).sort((a, b) => siteP(c, a) - siteP(c, b));
+    const n = c.order.length, k = c.place.filter(Boolean).length;
+    lines = `<p class="verdict ${c.ok ? 'good' : 'bad'}">${c.ok ? 'Correct order' : `${k} of ${n} in the right place`}</p>
+        <p class="fbline">From most to least acidic: ${sorted.map(j => `<strong>${LETTERS[j]}</strong> ${siteValue(q.sites[c.order[j]])}`).join(' → ')}</p>
+        ${c.ok ? '' : `<p class="fbline">Your order: ${c.seq.map(j => `<strong>${LETTERS[j]}</strong>`).join(' → ')}</p>`}`;
+  } else {
+    const b = q.sites[q.best], mine = q.sites[c.order[c.chosen]];
+    lines = `<p class="verdict ${c.ok ? 'good' : 'bad'}">${c.ok ? 'Correct' : 'Not quite'}</p>
+        <p class="fbline">Most acidic: <strong>${LETTERS[c.order.indexOf(q.best)]}</strong>, ${esc(b.what)}, pKa ${siteValue(b)}.</p>
+        ${c.ok ? '' : `<p class="fbline">You chose <strong>${LETTERS[c.chosen]}</strong>, ${esc(mine.what)}, pKa ${siteValue(mine)}.</p>`}`;
+  }
+  return `<div class="feedback" aria-live="polite">${lines}
+      ${q.note ? `<p class="note">${esc(q.note)}</p>` : ''}
+      <div class="row end"><button type="button" class="btn" id="ac-next">${ac.i + 1 < ac.deck.length ? 'Next molecule' : 'See results'}</button></div>
+    </div>`;
+}
+
 function renderAcidic() {
   const el = $('#acidic');
-  if (ac.phase === 'empty') { el.innerHTML = '<div class="panel"><p class="help">No molecules in this list.</p></div>'; return; }
+  if (ac.phase === 'empty') { el.innerHTML = `<div class="panel">${acTaskRow()}<p class="help">No molecules in this list.</p></div>`; return; }
   if (ac.phase === 'summary') { el.innerHTML = acSummaryHTML(); return; }
-  const c = ac.cur, q = c.q, done = c.chosen !== null;
+  const c = ac.cur, q = c.q, done = acDone(c), n = c.order.length;
   const tags = (ac.streak >= 2 ? `<span class="pill" data-l="3">${ac.streak} in a row</span>` : '');
-  const opts = c.order.map((s, j) => {
-    const site = q.sites[s];
-    const cls = 'opt' + (done ? ' rich' + (s === q.best ? ' correct' : j === c.chosen ? ' wrong' : '') : '');
-    const val = done
-      ? `<span class="val"><span class="site-what">${esc(site.what)}</span><span>${siteValue(site)}</span></span>`
-      : `<span class="val">${esc(site.on)}–H</span>`;
-    return `<button type="button" class="${cls}" data-j="${j}"${done ? ' disabled' : ''}><span class="key">${LETTERS[j]}</span>${val}</button>`;
-  }).join('');
-  let fb = '';
-  if (done) {
-    const b = q.sites[q.best], mine = q.sites[c.order[c.chosen]];
-    fb = `<div class="feedback" aria-live="polite">
-        <p class="verdict ${c.ok ? 'good' : 'bad'}">${c.ok ? 'Correct' : 'Not quite'}</p>
-        <p class="fbline">Most acidic: <strong>${LETTERS[c.order.indexOf(q.best)]}</strong>, ${esc(b.what)}, pKa ${siteValue(b)}.</p>
-        ${c.ok ? '' : `<p class="fbline">You chose <strong>${LETTERS[c.chosen]}</strong>, ${esc(mine.what)}, pKa ${siteValue(mine)}.</p>`}
-        ${q.note ? `<p class="note">${esc(q.note)}</p>` : ''}
-        <div class="row end"><button type="button" class="btn" id="ac-next">${ac.i + 1 < ac.deck.length ? 'Next molecule' : 'See results'}</button></div>
-      </div>`;
-  }
+  const ask = done ? `Each labelled proton and its pKa${inSolvent(q.solvent)}.`
+    : c.task === 'rank' ? `Rank the labelled protons from most to least acidic${inSolvent(q.solvent)}: tap them in order, on the structure or below.`
+    : `Which labelled proton is the most acidic${inSolvent(q.solvent)}? Pick its letter on the structure or below.`;
+  const controls = c.task === 'rank' && !done ? `<div class="row end">
+      <span class="help">${c.seq.length === n - 1 ? 'The last one goes last.' : 'Tap a proton again to take it out.'}</span>
+      <button type="button" class="btn ghost" id="ac-clear"${c.seq.length ? '' : ' disabled'}>Clear</button>
+      <button type="button" class="btn" id="ac-check"${c.seq.length >= n - 1 ? '' : ' disabled'}>Check order</button></div>` : '';
   el.innerHTML = `<div class="panel">
-      <div class="qhead"><div class="qtop"><p class="eyebrow">Most acidic · ${ac.i + 1} of ${ac.deck.length}</p><div class="tags">${tags}</div></div>
+      ${acTaskRow()}
+      <div class="qhead"><div class="qtop"><p class="eyebrow">${c.task === 'rank' ? 'Rank the protons' : 'Most acidic'} · ${ac.i + 1} of ${ac.deck.length}</p><div class="tags">${tags}</div></div>
         <div class="qmain">
           <div class="qtext"><h2 class="term">${esc(q.name)}</h2>${q.formula ? `<p class="formula">${esc(q.formula)}</p>` : ''}</div>
           <figure class="struct site-struct">${siteSVG(c, 2.4, 260, 640)}</figure>
         </div>
-        <p class="ask">${done ? `Each labelled proton and its pKa${inSolvent(q.solvent)}.` : `Which labelled proton is the most acidic${inSolvent(q.solvent)}? Pick its letter on the structure or below.`}</p></div>
-      <div class="options">${opts}</div>${fb}
+        <p class="ask">${ask}</p></div>
+      <div class="options">${c.order.map((s, j) => acOption(c, s, j)).join('')}</div>${controls}${done ? acFeedback(c) : ''}
     </div>`;
 }
 
@@ -1374,8 +1468,9 @@ function acSummaryHTML() {
   const rows = res.map(r => `<li><span class="t">${esc(r.q.name)}</span><span>${siteValue(r.q.sites[r.q.best])}</span>
       <span class="pill" data-l="${r.ok ? 3 : 1}">${r.ok ? 'Right' : 'Missed'}</span></li>`).join('');
   return `<div class="panel">
+      ${acTaskRow()}
       <div class="qhead"><p class="eyebrow">${esc(ac.list.name)} · done</p>
-      <h2 class="term">${ok} of ${res.length} right</h2>
+      <h2 class="term">${ok} of ${res.length} ${ac.task === 'rank' ? 'in the right order' : 'right'}</h2>
       <p class="ask">Each value is the pKa of the molecule's most acidic proton.</p></div>
       <ul class="summary">${rows}</ul>
       <div class="row end"><button type="button" class="btn" id="ac-again">Go again</button></div>
@@ -1384,8 +1479,8 @@ function acSummaryHTML() {
 
 function renderAcSide() {
   $('#ac-lists').innerHTML = SITE_LISTS.map(l => {
-    const qs = acPool(l), n = qs.length, right = qs.filter(q => acSeen[q.id] === 1).length;
-    const tried = qs.some(q => q.id in acSeen);
+    const qs = acPool(l), n = qs.length, right = qs.filter(q => acSeen[seenKey(q)] === 1).length;
+    const tried = qs.some(q => seenKey(q) in acSeen);
     return `<button type="button" class="set" data-list="${l.id}" aria-pressed="${l === ac.list}" title="${esc(l.desc)}">
         <span class="nm">${esc(l.name)}</span>
         <span class="meta"><span>${n} molecules</span><span>${tried ? `${right} right` : 'not tried'}</span></span>
@@ -1399,10 +1494,14 @@ $('#ac-lists').addEventListener('click', e => {
 });
 $('#acidic').addEventListener('click', e => {
   const t = e.target.closest('[data-j]');
-  if (t) return acChoose(+t.dataset.j);
+  if (t) return acTap(+t.dataset.j, t.tagName === 'BUTTON');
   const b = e.target.closest('button');
-  if (b && b.id === 'ac-next') acNext();
-  else if (b && b.id === 'ac-again') acDeal();
+  if (!b) return;
+  if (b.dataset.task) acSetTask(b.dataset.task);
+  else if (b.id === 'ac-check') acCheck();
+  else if (b.id === 'ac-clear') { ac.cur.seq = []; renderAcidic(); }
+  else if (b.id === 'ac-next') acNext();
+  else if (b.id === 'ac-again') acDeal();
 });
 
 /* ---------- tabs + keys ---------- */
@@ -1422,7 +1521,7 @@ function show(v) {
     for (const c of el.querySelectorAll('button, select, input')) c.disabled = !on;
   }
   $('#side-acidic').hidden = v !== 'acidic';
-  const strip = document.querySelector('.tabs'), tb = $('#tab-' + v);
+  const tb = $('#tab-' + v), strip = tb.parentElement;
   if (strip.scrollWidth > strip.clientWidth)
     strip.scrollLeft += tb.getBoundingClientRect().left - strip.getBoundingClientRect().left - (strip.clientWidth - tb.offsetWidth) / 2;
   if (v === 'learn') renderLearn();
@@ -1433,7 +1532,7 @@ function show(v) {
   const top = $('.main').getBoundingClientRect().top;
   if (top < 0) window.scrollBy({ top: top - 12 });
 }
-document.querySelector('.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-view]'); if (b) show(b.dataset.view); });
+document.querySelector('.modes').addEventListener('click', e => { const b = e.target.closest('button[data-view]'); if (b) show(b.dataset.view); });
 
 document.addEventListener('keydown', e => {
   const tag = e.target.tagName;
@@ -1449,10 +1548,12 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'ArrowRight') fcMove(1);
     else if (e.key === 'ArrowLeft') fcMove(-1);
   } else if (view === 'acidic') {
-    const k = e.key.toLowerCase();
-    if (ac.phase === 'question' && ac.cur && ac.cur.chosen === null) {
+    const k = e.key.toLowerCase(), c = ac.cur;
+    if (ac.phase === 'question' && c && !acDone(c)) {
       const j = /^[1-4]$/.test(k) ? +k - 1 : k.length === 1 ? LETTERS.indexOf(k) : -1;
-      if (j >= 0) { e.preventDefault(); acChoose(j); }
+      if (j >= 0) { e.preventDefault(); acTap(j); }
+      else if (c.task === 'rank' && e.key === 'Backspace' && c.seq.length) { e.preventDefault(); c.seq.pop(); renderAcidic(); }
+      else if (c.task === 'rank' && e.key === 'Enter' && tag !== 'BUTTON') { e.preventDefault(); acCheck(); }
     } else if (e.key === 'Enter' && tag !== 'BUTTON') {
       const b = $('#ac-next') || $('#ac-again');
       if (b) { e.preventDefault(); b.click(); }

@@ -13,7 +13,7 @@ You can also download `pka_learn.html` and open it in any browser.
 - Every question names the solvent its value is for (water, DMSO or THF); when a molecule has values in both water and DMSO, both are shown
 - A Learn mode (multiple choice, then typed answers), flashcards, and space for your own cards or a Quizlet export
 - Rank: deal 5, 10 or 15 cards from a set and put them in order, lowest pKa first
-- Most acidic: 29 molecules with two to four labelled protons; pick the most acidic one, then see the pKa of each
+- Most acidic: 29 molecules with two to four labelled protons; pick the most acidic one, or rank them all from most to least acidic, then see the pKa of each
 - Easy and Hard levels: on Easy, the values you compare are always at least 5 pKa units apart
 
 ## Sources
