@@ -10,6 +10,7 @@ You can also download `pka_learn.html` and open it in any browser.
 
 - 253 cards in seven sets: textbook essentials, enolates, carbanions and ylides, O–H acids, amines, N–H acids, and bases for synthesis
 - A 2D structure for each molecule, with the acidic proton highlighted
+- Every question names the solvent its value is for (water, DMSO or THF); when a molecule has values in both water and DMSO, both are shown
 - A Learn mode (multiple choice, then typed answers), flashcards, and space for your own cards or a Quizlet export
 - Rank: deal 5, 10 or 15 cards from a set and put them in order, lowest pKa first
 - Most acidic: 29 molecules with two to four labelled protons; pick the most acidic one, then see the pKa of each
