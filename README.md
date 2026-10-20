@@ -1,10 +1,10 @@
 # pKa Learn
 
-A Quizlet-style quiz for learning the pKa values of organic acids and bases. Everything is in one HTML file.
+pKa Learn is a Quizlet-style trainer for the pKa values of organic acids and bases. Everything is in one HTML file.
 
-**Play it here:** https://quentinbind.github.io/pka-quiz/pka_quiz.html
+**Play it here:** https://quentinbind.github.io/pka-learn/pka_learn.html
 
-You can also download `pka_quiz.html` and open it in any browser.
+You can also download `pka_learn.html` and open it in any browser.
 
 ## What's inside
 

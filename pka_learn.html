@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: study app. Left rail holds the sets and options (always visible); the main column swaps between Learn, Flashcards, Rank, Most acidic and Cards. Most acidic brings its own molecule lists into the rail. Structures sit on a paper panel with the acidic proton haloed. */
+/* Layout: study app. The options sit in a bar under the header (always visible); the left rail holds the sets; the main column swaps between Learn, Flashcards, Rank, Most acidic and Cards. Most acidic brings its own molecule lists into the rail. Structures sit on a paper panel with the acidic proton haloed. */
 :root {
   --bg: #EDF1F4; --surface: #FFFFFF; --paper: #F6F8FA; --ink: #15212B; --muted: #566472; --line: #D3DBE2;
   --accent: #0D5C78; --accent-ink: #FFFFFF; --accent-soft: #DAEAF1;
@@ -85,15 +85,26 @@ h1 span { font-weight: 500; color: var(--muted); }
 .set .mini { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .set .mini i { display: block; height: 100%; background: var(--good); }
 
-/* options */
-.opts { display: grid; gap: 12px; }
-@media (max-width: 939px) { .opts { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-items: end; } }
-.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+/* options: a bar under the header, the same in every tab; controls a tab does not use are greyed out */
+.optbar { display: grid; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.optrow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; }
+.optfoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.optfoot .help { font-size: 13px; max-width: 90ch; }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
 .field select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
 .checks { display: grid; gap: 6px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
 .check input { width: 16px; height: 16px; accent-color: var(--accent); }
-.opts .help { font-size: 13px; }
+.optbar .off { opacity: .45; }
+.optbar .off, .optbar .off * { cursor: not-allowed; }
+.field > .seg { display: flex; }
+.field > .seg button { flex: 1; }
+/* on a phone: Difficulty and the checkboxes share the first row, each select gets a full row */
+@media (max-width: 600px) {
+  .optrow > label.field { flex: 1 1 100%; }
+  .optrow > .field:first-child { order: -2; flex: 1 1 auto; }
+  .optrow > .checks { order: -1; }
+}
 
 .eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
@@ -245,8 +256,6 @@ textarea { width: 100%; min-height: 260px; padding: 12px; border: 1px solid var(
 .seg button[disabled] { opacity: .4; cursor: not-allowed; }
 .seg-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .seg-row .lab { font-size: 13px; color: var(--muted); }
-.seg.wide { display: flex; }
-.seg.wide button { flex: 1; }
 
 /* rank */
 .rank-axis { display: grid; gap: 5px; }
@@ -303,6 +312,43 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
       <button id="tab-cards" role="tab" aria-selected="false" aria-controls="view-cards" data-view="cards">Cards</button>
     </nav>
   </header>
+
+  <section class="optbar" aria-label="Options">
+    <div class="optrow">
+      <div class="field" data-for="learn rank acidic">Difficulty
+        <div class="seg" role="group" aria-label="Difficulty"><button type="button" data-level="easy">Easy</button><button type="button" data-level="hard">Hard</button></div>
+      </div>
+      <label class="field" data-for="learn">Questions
+        <select id="opt-qtype">
+          <option value="mixed">Multiple choice, then typed</option>
+          <option value="mc">Multiple choice only</option>
+          <option value="written">Typed only</option>
+        </select>
+      </label>
+      <label class="field" data-for="learn">Answer with
+        <select id="opt-dir">
+          <option value="value">The pKa value</option>
+          <option value="term">The name (multiple choice)</option>
+        </select>
+      </label>
+      <label class="field" data-for="learn">Typed answers count within
+        <select id="opt-tol">
+          <option value="0">The exact value</option>
+          <option value="0.5">± 0.5</option>
+          <option value="1">± 1</option>
+          <option value="2">± 2</option>
+        </select>
+      </label>
+      <div class="checks">
+        <label class="check" data-for="learn flashcards rank cards"><input type="checkbox" id="opt-structs"> Show structures</label>
+        <label class="check" data-for="learn"><input type="checkbox" id="opt-shuffle"> Shuffle cards</label>
+      </div>
+    </div>
+    <div class="optfoot">
+      <p class="help">Easy keeps the values you compare at least 5 pKa units apart: answer choices in Learn, cards in Rank, the top two protons in Most acidic. A card is mastered after two correct answers in a row; progress is saved in this browser.</p>
+      <div data-for="learn flashcards cards"><button class="btn ghost small" id="reset-progress" type="button">Reset progress for this set</button></div>
+    </div>
+  </section>
   <div class="indicator" aria-hidden="true"></div>
 
   <div class="app">
@@ -315,47 +361,7 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
         <h2 class="side-h" id="acidic-h">Molecules</h2>
         <div class="stack">
           <div class="sets" id="ac-lists"></div>
-          <div class="field">Difficulty
-            <div class="seg wide" role="group" aria-label="Difficulty"><button type="button" data-level="easy">Easy</button><button type="button" data-level="hard">Hard</button></div>
-            <span>Easy leaves out molecules whose two most acidic protons are less than 5 pKa units apart.</span>
-          </div>
           <p class="help">Values marked ≈ are estimates from a simple model compound; the others are measured. Each molecule uses one scale: water, unless DMSO is shown.</p>
-        </div>
-      </section>
-      <section id="side-opts" aria-labelledby="opts-h">
-        <h2 class="side-h" id="opts-h">Options</h2>
-        <div class="opts">
-          <div class="field">Difficulty
-            <div class="seg wide" role="group" aria-label="Difficulty"><button type="button" data-level="easy">Easy</button><button type="button" data-level="hard">Hard</button></div>
-            <span>Easy keeps multiple-choice answers, and the cards in Rank, at least 5 pKa units apart.</span>
-          </div>
-          <label class="field">Questions
-            <select id="opt-qtype">
-              <option value="mixed">Multiple choice, then typed</option>
-              <option value="mc">Multiple choice only</option>
-              <option value="written">Typed only</option>
-            </select>
-          </label>
-          <label class="field">Answer with
-            <select id="opt-dir">
-              <option value="value">The pKa value</option>
-              <option value="term">The name (multiple choice)</option>
-            </select>
-          </label>
-          <label class="field">Typed answers count within
-            <select id="opt-tol">
-              <option value="0">The exact value</option>
-              <option value="0.5">± 0.5</option>
-              <option value="1">± 1</option>
-              <option value="2">± 2</option>
-            </select>
-          </label>
-          <div class="checks">
-            <label class="check"><input type="checkbox" id="opt-structs"> Show structures</label>
-            <label class="check"><input type="checkbox" id="opt-shuffle"> Shuffle cards</label>
-          </div>
-          <p class="help">A card is mastered after two correct answers in a row. Progress is saved in this browser.</p>
-          <div><button class="btn ghost small" id="reset-progress" type="button">Reset progress for this set</button></div>
         </div>
       </section>
     </aside>
@@ -1054,8 +1060,6 @@ function renderRank(animate) {
   const easy = settings.level === 'easy';
   const full = easy ? `Only ${rk.room} cards in this set can all be ${EASY_GAP} apart` : `This set has ${rk.pool} cards`;
   const sizes = RANK_SIZES.map(s => `<button type="button" data-n="${s}" aria-pressed="${s === n}"${s > rk.room ? ` disabled title="${full}"` : ''}>${s}</button>`).join('');
-  const levels = `<div class="seg" role="group" aria-labelledby="rank-lv-lab">${['easy', 'hard'].map(l =>
-    `<button type="button" data-level="${l}" aria-pressed="${settings.level === l}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div>`;
   const views = rk.checked ? `<div class="seg" role="group" aria-label="Order shown">
       <button type="button" data-show="yours" aria-pressed="${rk.show === 'yours'}">Your order</button>
       <button type="button" data-show="right" aria-pressed="${rk.show === 'right'}">Correct order</button></div>` : '';
@@ -1076,7 +1080,7 @@ function renderRank(animate) {
       <div class="qhead"><div class="qtop"><p class="eyebrow">Rank · ${esc(active.name)}</p>
         <div class="tags">${SOLVENT[rk.solvent] ? `<span class="solv">in ${SOLVENT[rk.solvent]}</span>` : ''}</div></div>
         <h2 class="term">Lowest pKa first</h2><p class="ask">${ask}${spacing}</p></div>
-      <div class="seg-row"><span class="lab" id="rank-lv-lab">Level</span>${levels}<span class="lab" id="rank-n-lab">Cards</span><div class="seg" role="group" aria-labelledby="rank-n-lab">${sizes}</div>${views}</div>
+      <div class="seg-row"><span class="lab" id="rank-n-lab">Cards</span><div class="seg" role="group" aria-labelledby="rank-n-lab">${sizes}</div>${views}</div>
       ${result}
       <div class="rank-axis" aria-hidden="true"><i></i><div><span>1 · lowest pKa, ${isBase ? 'weakest base' : 'strongest acid'}</span><span>${n} · highest pKa</span></div></div>
       <div class="rgrid${rk.checked ? ' done' : ''}" id="rgrid">${seq.map((k, i) => rankTile(k, i, sc)).join('')}</div>
@@ -1385,8 +1389,14 @@ function show(v) {
     $('#view-' + name).hidden = name !== v;
     $('#tab-' + name).setAttribute('aria-selected', String(name === v));
   }
-  // Most acidic has its own molecule lists; the sets and options do not apply to it
-  $('#side-sets').hidden = $('#side-opts').hidden = v === 'acidic';
+  // Most acidic has its own molecule lists in place of the sets
+  $('#side-sets').hidden = v === 'acidic';
+  for (const el of document.querySelectorAll('.optbar [data-for]')) {
+    const on = el.dataset.for.split(' ').includes(v);
+    el.classList.toggle('off', !on);
+    el.title = on ? '' : 'Not used in this tab';
+    for (const c of el.querySelectorAll('button, select, input')) c.disabled = !on;
+  }
   $('#side-acidic').hidden = v !== 'acidic';
   const strip = document.querySelector('.tabs'), tb = $('#tab-' + v);
   if (strip.scrollWidth > strip.clientWidth)
