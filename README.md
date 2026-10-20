@@ -2,7 +2,7 @@
 
 pKa Learn is a Quizlet-style trainer for the pKa values of organic acids and bases. Everything is in one HTML file.
 
-**Play it here:** https://chemlearn.github.io/pka-learn/pka_learn.html
+**Play it here:** https://chemtrain.github.io/pka-learn/pka_learn.html
 
 You can also download `pka_learn.html` and open it in any browser.
 
@@ -28,7 +28,7 @@ Structures are drawn with [RDKit](https://www.rdkit.org).
 
 If you use pKa Learn in a course, a worksheet or a paper, please cite it:
 
-> Bindschaedler, Q. *pKa Learn* (2026). ChemLearn. https://github.com/ChemLearn/pka-learn
+> Bindschaedler, Q. *pKa Learn* (2026). ChemTrain. https://github.com/ChemTrain/pka-learn
 
 GitHub's **Cite this repository** button (from `CITATION.cff`) gives the same reference in APA and BibTeX.
 

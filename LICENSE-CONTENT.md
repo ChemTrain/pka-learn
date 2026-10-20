@@ -6,7 +6,7 @@ The content is everything in `pka_learn.html` that is not code: the selection an
 
 You may share and adapt it for any purpose, including commercially, as long as you give credit. When you reuse it, for example in course slides, a worksheet or another quiz, please write:
 
-> pKa Learn by Quentin Bindschaedler (ChemLearn), https://github.com/ChemLearn/pka-learn, licensed under CC BY 4.0.
+> pKa Learn by Quentin Bindschaedler (ChemTrain), https://github.com/ChemTrain/pka-learn, licensed under CC BY 4.0.
 
 and say if you changed anything.
 
