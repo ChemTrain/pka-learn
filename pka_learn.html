@@ -1299,8 +1299,15 @@ const acPool = l => l.questions.filter(q => ac.task === 'rank'
   ? q.sites.length >= AC_RANK_MIN && q.minGap >= levelGap()
   : q.gap >= levelGap());
 function acDeal() {
-  ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = [];
+  ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = []; ac.retry = false;
   if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
+}
+// a round of just the questions missed in the round before
+function acRetry() {
+  const missed = ac.results.filter(r => !r.ok).map(r => r.q);
+  if (!missed.length) return acDeal();
+  ac.deck = shuffle(missed); ac.i = 0; ac.results = []; ac.retry = true;
+  acBuild();
 }
 function acBuild() {
   const q = ac.deck[ac.i];
@@ -1341,7 +1348,7 @@ function acNext() {
   ac.i++;
   if (ac.i < ac.deck.length) return acBuild();
   ac.phase = 'summary'; renderAcidic();
-  const b = $('#ac-again'); if (b) b.focus({ preventScroll: true });
+  const b = $('#ac-retry') || $('#ac-again'); if (b) b.focus({ preventScroll: true });
 }
 const siteValue = s => `${s.est ? '<span class="approx">≈</span>' : ''}${chip(s.p)}`;
 // 1-based rank of letter j by pKa (ties share the first rank)
@@ -1456,7 +1463,7 @@ function renderAcidic() {
       <button type="button" class="btn" id="ac-check"${c.seq.length >= n - 1 ? '' : ' disabled'}>Check order</button></div>` : '';
   el.innerHTML = `<div class="panel">
       ${acTaskRow()}
-      <div class="qhead"><div class="qtop"><p class="eyebrow">${c.task === 'rank' ? 'Rank the protons' : 'Most acidic'} · ${ac.i + 1} of ${ac.deck.length}</p><div class="tags">${tags}</div></div>
+      <div class="qhead"><div class="qtop"><p class="eyebrow">${c.task === 'rank' ? 'Rank the protons' : 'Most acidic'}${ac.retry ? ' · missed' : ''} · ${ac.i + 1} of ${ac.deck.length}</p><div class="tags">${tags}</div></div>
         <div class="qmain">
           <div class="qtext"><h2 class="term">${esc(q.name)}</h2>${q.formula ? `<p class="formula">${esc(q.formula)}</p>` : ''}</div>
           <figure class="struct site-struct">${siteSVG(c, 2.4, 260, 640)}</figure>
@@ -1467,16 +1474,17 @@ function renderAcidic() {
 }
 
 function acSummaryHTML() {
-  const res = ac.results, ok = res.filter(r => r.ok).length;
+  const res = ac.results, ok = res.filter(r => r.ok).length, missed = res.length - ok;
   const rows = res.map(r => `<li><span class="t">${esc(r.q.name)}</span><span>${siteValue(r.q.sites[r.q.best])}</span>
       <span class="pill" data-l="${r.ok ? 3 : 1}">${r.ok ? 'Right' : 'Missed'}</span></li>`).join('');
   return `<div class="panel">
       ${acTaskRow()}
-      <div class="qhead"><p class="eyebrow">${esc(ac.list.name)} · done</p>
+      <div class="qhead"><p class="eyebrow">${esc(ac.list.name)}${ac.retry ? ' · missed questions' : ''} · done</p>
       <h2 class="term">${ok} of ${res.length} ${ac.task === 'rank' ? 'in the right order' : 'right'}</h2>
       <p class="ask">Each value is the pKa of the molecule's most acidic proton.</p></div>
       <ul class="summary">${rows}</ul>
-      <div class="row end"><button type="button" class="btn" id="ac-again">Go again</button></div>
+      <div class="row end">${missed ? `<button type="button" class="btn ghost" id="ac-again">Go again</button><button type="button" class="btn" id="ac-retry">Retry the ${missed} you missed</button>`
+        : '<button type="button" class="btn" id="ac-again">Go again</button>'}</div>
     </div>`;
 }
 
@@ -1505,6 +1513,7 @@ $('#acidic-box').addEventListener('click', e => {
   else if (b.id === 'ac-clear') { ac.cur.seq = []; renderAcidic(); }
   else if (b.id === 'ac-next') acNext();
   else if (b.id === 'ac-again') acDeal();
+  else if (b.id === 'ac-retry') acRetry();
 });
 
 /* ---------- tabs + keys ---------- */
@@ -1558,7 +1567,7 @@ document.addEventListener('keydown', e => {
       else if (c.task === 'rank' && e.key === 'Backspace' && c.seq.length) { e.preventDefault(); c.seq.pop(); renderAcidic(); }
       else if (c.task === 'rank' && e.key === 'Enter' && tag !== 'BUTTON') { e.preventDefault(); acCheck(); }
     } else if (e.key === 'Enter' && tag !== 'BUTTON') {
-      const b = $('#ac-next') || $('#ac-again');
+      const b = $('#ac-next') || $('#ac-retry') || $('#ac-again');
       if (b) { e.preventDefault(); b.click(); }
     }
   }
