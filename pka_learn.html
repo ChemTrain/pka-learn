@@ -129,6 +129,12 @@ h1 span { font-weight: 500; color: var(--muted); }
 /* question panel */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: clamp(18px, 3.5vw, 28px); display: grid; gap: 18px; min-width: 0; }
 .qhead { display: grid; gap: 6px; }
+.star { border: 0; background: none; padding: 0 2px; font-size: 19px; line-height: 1; color: var(--muted); cursor: pointer; }
+.star:hover, .tile .tstar:hover { color: var(--warn); }
+.star[aria-pressed="true"], .tile .tstar[aria-pressed="true"] { color: var(--warn); }
+.qtop-r { display: inline-flex; align-items: center; gap: 8px; }
+.tile { position: relative; }
+.tile .tstar { position: absolute; top: 6px; right: 8px; z-index: 1; font-size: 18px; line-height: 1; color: var(--muted); }
 .qtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tags { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .term { margin: 0; font: 700 clamp(26px, 4.6vw, 36px)/1.12 var(--f-display); letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
@@ -363,6 +369,9 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
       <div class="field" data-for="learn">Typed answers within
         <div class="seg" role="group" aria-label="Typed answers count within" data-opt="tol"><button type="button" data-val="0">Exact</button><button type="button" data-val="0.5">± 0.5</button><button type="button" data-val="1">± 1</button><button type="button" data-val="2">± 2</button></div>
       </div>
+      <div class="field" data-for="learn acidic flashcards">Ask
+        <div class="seg" role="group" aria-label="Ask" data-opt="ask"><button type="button" data-val="all" title="Every card, mastered or not">All cards</button><button type="button" data-val="new" title="Only the cards you have not mastered yet">Not mastered</button></div>
+      </div>
       <div class="field" data-for="learn">Card order
         <div class="seg" role="group" aria-label="Card order" data-opt="shuffle"><button type="button" data-val="true">Shuffled</button><button type="button" data-val="false">Set order</button></div>
       </div>
@@ -404,6 +413,7 @@ body.rk-drag { user-select: none; -webkit-user-select: none; cursor: grabbing; }
         </div>
         <div class="row">
           <button class="btn ghost small" id="fc-shuffle" type="button" aria-pressed="false">Shuffle</button>
+          <button class="btn ghost small" id="fc-star" type="button" data-star="" data-label="1">☆ Add to My cards</button>
           <span class="help">Space flips the card. The arrow keys move between cards.</span>
         </div>
       </section>
@@ -496,7 +506,7 @@ function molSVG(i, maxScale, maxH, maxW, ring) {
 }
 
 /* ---------- sets ---------- */
-const BUILTIN = DATA.sets.map(s => ({ ...s, cards: s.cards.map(c => ({ ...c, id: c.term + '|' + c.answer })) }));
+const BUILTIN = DATA.sets.map(s => ({ ...s, cards: s.cards.map(c => ({ ...c, kind: s.kind, id: c.term + '|' + c.answer })) }));
 const MOL_BY_NAME = new Map();
 for (const kind of ['acid', 'base'])
   for (const s of BUILTIN) if (s.kind === kind)
@@ -534,12 +544,51 @@ function serializeCards(cards) {
 
 let customText = store.get('pka2.custom');
 if (customText == null) customText = store.get('pka.set') || '';  // cards saved by the first version
-const CUSTOM = { id: 'custom', name: 'My cards', kind: 'acid', desc: 'Your own cards, or a set exported from Quizlet.', source: null, cards: parseCustom(customText) };
+// My cards: the cards you starred, then the ones you typed or imported
+let ownCards = parseCustom(customText);
+const CUSTOM = { id: 'custom', name: 'My cards', kind: 'acid', desc: 'Cards you starred (☆), and your own cards or a set exported from Quizlet.', source: null, cards: [] };
+const BY_ID = new Map();
+for (const s of BUILTIN) for (const c of s.cards) if (!BY_ID.has(c.id)) BY_ID.set(c.id, c);
+/* ---------- my cards: the star on a card puts it in My cards ---------- */
+const stars = new Set(store.get('pka2.stars') || []);
+const starOn = id => stars.has(id);
+const starTitle = id => starOn(id) ? 'Remove from My cards' : 'Add to My cards';
+// a span inside card tiles (they are buttons themselves), a button everywhere else
+const starHTML = (id, tag = 'button') => !BY_ID.has(id) ? '' : `<${tag} ${tag === 'button' ? 'type="button" class="star"' : 'class="tstar"'} data-star="${esc(id)}" aria-pressed="${starOn(id)}" title="${starTitle(id)}">${starOn(id) ? '★' : '☆'}</${tag}>`;
+function paintStar(el) {
+  const on = starOn(el.dataset.star);
+  el.setAttribute('aria-pressed', String(on));
+  el.title = starTitle(el.dataset.star);
+  el.textContent = el.dataset.label ? (on ? '★ In My cards' : '☆ Add to My cards') : on ? '★' : '☆';
+}
+function toggleStar(id) {
+  if (!stars.delete(id)) stars.add(id);
+  store.set('pka2.stars', [...stars]);
+  for (const el of document.querySelectorAll('[data-star]')) if (el.dataset.star === id) paintStar(el);
+  refreshMine();
+}
+// in the capture phase, so a star inside a card tile does not also open the card
+document.addEventListener('click', e => {
+  const s = e.target.closest('[data-star]');
+  if (!s || !s.dataset.star) return;
+  e.preventDefault(); e.stopPropagation();
+  toggleStar(s.dataset.star);
+}, true);
+function fillMine() {
+  const starred = [...stars].map(id => BY_ID.get(id)).filter(Boolean), ids = new Set(starred.map(c => c.id));
+  CUSTOM.cards = [...starred, ...ownCards.filter(c => !ids.has(c.id))];
+}
+function refreshMine() {
+  fillMine();
+  if (active === CUSTOM) { makeOrder(); rankDeal(); }  // the next round uses the new list
+  renderSets();
+}
+fillMine();
 // the whole pool comes first and is the default; a molecule in two sets is asked once
 const seenAll = new Set();
 const ALL = { id: 'all', name: 'All acids', kind: 'acid', desc: 'Every acid in pKa Learn.', source: null,
   cards: BUILTIN.filter(s => s.kind === 'acid').flatMap(s => s.cards).filter(c => !seenAll.has(c.id) && seenAll.add(c.id)) };
-const SETS = [ALL, ...BUILTIN, CUSTOM];
+const SETS = [ALL, CUSTOM, ...BUILTIN];
 
 function setSolvent(s) {
   if (s.id === 'core') return 'textbook';
@@ -551,7 +600,7 @@ function setSolvent(s) {
 }
 
 /* ---------- state ---------- */
-const settings = Object.assign({ qtype: 'mixed', dir: 'all', tol: 1, shuffle: true, level: 'hard' },
+const settings = Object.assign({ ask: 'all', qtype: 'mixed', dir: 'all', tol: 1, shuffle: true, level: 'hard' },
   store.get('pka.settings') || {}, store.get('pka2.settings') || {});
 if (!settings.allDir) { settings.dir = 'all'; settings.allDir = true; }  // "All" is the new default
 // One mastery record per card, shared by every set: the whole pool and its sets move together.
@@ -578,7 +627,8 @@ const saveSettings = () => store.set('pka2.settings', settings);
 const hasMol = c => c.mol != null && !!MOLS[c.mol];
 function saveLevels() { store.set('pka2.levels', levels); renderSets(); }
 function saveRound() { store.set('pka2.round.' + active.id, roundNo); }
-function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active.cards.slice(); }
+let passSeen = new Set();  // cards asked in this pass, when Ask is All cards
+function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active.cards.slice(); passSeen = new Set(); }
 
 function selectSet(id) {
   active = SETS.find(s => s.id === id) || SETS[0];
@@ -611,9 +661,14 @@ $('#sets').addEventListener('click', e => {
 /* ---------- learn ---------- */
 function startRound() {
   if (!active.cards.length) { phase = 'empty'; round = null; cur = null; renderLearn(); return; }
-  const pending = order.filter(c => lvl(c.id) < 3);
+  let pending = order.filter(c => lvl(c.id) < 3);
+  if (settings.ask === 'all') {  // every card once per pass, mastered ones too
+    pending = order.filter(c => !passSeen.has(c.id));
+    if (!pending.length) { makeOrder(); pending = order; }
+  }
   if (!pending.length) { phase = 'done'; round = null; renderLearn(); return; }
   const pick = pending.slice(0, ROUND_SIZE);
+  for (const c of pick) passSeen.add(c.id);
   round = { queue: settings.shuffle ? shuffle(pick) : pick, i: 0, results: [] };
   buildQuestion(round.queue[0]);
 }
@@ -662,8 +717,8 @@ function distractors(card, n, byTerm) {
   const vals = valuesOf(card);
   const clash = c => norm(c.answer) === norm(card.answer) || valuesOf(c).some(x => vals.some(v => Math.abs(x - v) < 0.2));
   const seen = new Set([norm(byTerm ? card.term : card.answer)]);
-  const pool = [];
-  for (const c of shuffle(active.cards)) {
+  const pool = [], from = active === CUSTOM && card.kind ? BUILTIN.filter(s => s.kind === card.kind).flatMap(s => s.cards) : active.cards;  // My cards borrows wrong answers
+  for (const c of shuffle(from)) {
     if (c === card || clash(c)) continue;  // never offer a second right answer
     const k = norm(byTerm ? c.term : c.answer);
     if (seen.has(k)) continue;
@@ -773,9 +828,9 @@ function progressHTML() {
 }
 
 function questionHTML() {
-  const c = cur.card, r = cur.result, rev = cur.dir === 'term', isBase = active.kind === 'base';
+  const c = cur.card, r = cur.result, rev = cur.dir === 'term', isBase = (c.kind || active.kind) === 'base';
   const shown = r ? r.before : lvl(c.id);
-  const tags = `<div class="tags"><span class="pill" data-l="${shown}">${LEVEL_NAMES[shown]}</span></div>`;
+  const tags = `<div class="tags">${starHTML(c.id)}<span class="pill" data-l="${shown}">${LEVEL_NAMES[shown]}</span></div>`;
   let head;
   if (rev) {
     head = `<div class="qhead"><div class="qtop"><p class="eyebrow">${isBase ? 'Conjugate acid pKa' : 'pKa'}</p>${tags}</div>
@@ -814,7 +869,7 @@ function questionHTML() {
 }
 
 function feedbackHTML() {
-  const r = cur.result, c = r.card, rev = cur.dir === 'term', isBase = active.kind === 'base';
+  const r = cur.result, c = r.card, rev = cur.dir === 'term', isBase = (c.kind || active.kind) === 'base';
   let verdict, cls;
   if (r.ok) { cls = 'good'; verdict = r.overridden ? 'Counted as correct' : r.close ? 'Close enough' : 'Correct'; }
   else { cls = 'bad'; verdict = r.dontKnow ? 'Here is the answer' : 'Not quite'; }
@@ -902,7 +957,7 @@ $('#learn-box').addEventListener('click', e => {
 $('#learn-box').addEventListener('submit', e => { e.preventDefault(); submitWritten(false); });
 
 /* options: each [data-opt] button group sets one setting */
-const OPT_VALUE = { qtype: v => v, dir: v => v, tol: parseFloat, shuffle: v => v === 'true' };
+const OPT_VALUE = { qtype: v => v, dir: v => v, tol: parseFloat, shuffle: v => v === 'true', ask: v => v };
 function syncOptions() {
   for (const g of document.querySelectorAll('.optbar [data-opt]'))
     for (const b of g.querySelectorAll('button')) b.setAttribute('aria-pressed', String(String(settings[g.dataset.opt]) === b.dataset.val));
@@ -916,6 +971,7 @@ document.querySelector('.optbar').addEventListener('click', e => {
   settings[key] = val; saveSettings(); syncOptions();
   if (key === 'qtype' || key === 'dir') refreshQuestion();
   if (key === 'shuffle') makeOrder();
+  if (key === 'ask') { makeOrder(); startRound(); fcInit(); renderFC(false); acDeal(); renderAcSide(); }
 });
 syncOptions();
 const resetBtn = $('#reset-progress');
@@ -931,16 +987,20 @@ resetBtn.addEventListener('click', () => {
 
 /* ---------- flashcards ---------- */
 const fc = { order: [], i: 0, flipped: false, shuffled: false };
-function fcInit() { fc.order = fc.shuffled ? shuffle(active.cards) : active.cards.slice(); fc.i = 0; fc.flipped = false; }
+function fcInit() {
+  const base = settings.ask === 'new' ? active.cards.filter(c => lvl(c.id) < 3) : active.cards;
+  fc.order = fc.shuffled ? shuffle(base) : base.slice(); fc.i = 0; fc.flipped = false;
+}
 function renderFC(anim) {
   const c = fc.order[fc.i], el = $('#fc-card');
+  const sb = $('#fc-star'); if (sb) { sb.dataset.star = c ? c.id : ''; sb.hidden = !c || !BY_ID.has(c.id); if (c) paintStar(sb); }
   if (!c) {
     el.classList.remove('flipped');
-    el.innerHTML = '<span class="hint">This set has no cards yet. Add some in the Cards tab.</span>';
+    el.innerHTML = settings.ask === 'new' && active.cards.length ? '<span class="hint">Every card in this set is mastered. Set Ask to All cards to see them again.</span>' : '<span class="hint">This set has no cards yet. Star cards (☆) or add your own in the Cards tab.</span>';
     $('#fc-count').textContent = '0 / 0';
     return;
   }
-  const isBase = active.kind === 'base';
+  const isBase = (c.kind || active.kind) === 'base';
   const mol = hasMol(c) ? `<span class="fc-mol">${molSVG(c.mol, fc.flipped ? 1.3 : 1.9, fc.flipped ? 130 : 200, 560)}</span>` : '';
   el.classList.toggle('flipped', fc.flipped);
   el.innerHTML = fc.flipped
@@ -972,8 +1032,12 @@ $('#fc-shuffle').addEventListener('click', e => {
   fcInit(); renderFC(false);
 });
 function openCard(id) {
-  const k = fc.order.findIndex(c => c.id === id);
-  if (k < 0) return;
+  let k = fc.order.findIndex(c => c.id === id);
+  if (k < 0) {  // left out by Ask: Not mastered, but asked for by name
+    const c = active.cards.find(c => c.id === id);
+    if (!c) return;
+    fc.order.splice(fc.i, 0, c); k = fc.i;
+  }
   fc.i = k; fc.flipped = false;
   show('flashcards');
 }
@@ -989,7 +1053,7 @@ function renderCards() {
   $('#tiles').innerHTML = sorted.map(c => {
     const mol = hasMol(c) ? `<span class="thumb">${molSVG(c.mol, 1.1, 100, 150)}</span>` : '';
     const solv = solvBadge(c.solvent) + (c.also && c.also.length ? `<span class="talso">${esc(alsoText(c))}</span>` : '');
-    return `<button type="button" class="tile${mol ? '' : ' nomol'}" data-card="${esc(c.id)}" title="Open as a flashcard">${mol}
+    return `<button type="button" class="tile${mol ? '' : ' nomol'}" data-card="${esc(c.id)}" title="Open as a flashcard">${starHTML(c.id, 'span')}${mol}
         <span class="tname">${esc(c.term)}</span>
         <span class="tmeta"><span>${chip(c.answer)}${solv}</span><i class="dot l${lvl(c.id)}" title="${LEVEL_NAMES[lvl(c.id)]}"></i></span>
       </button>`;
@@ -999,7 +1063,7 @@ $('#tiles').addEventListener('click', e => { const t = e.target.closest('[data-c
 const msg = (text, ok) => { const m = $('#set-msg'); m.textContent = text; m.className = 'msg ' + (ok ? 'good' : 'bad'); };
 function saveCustom(text) {
   customText = text; store.set('pka2.custom', text);
-  CUSTOM.cards = parseCustom(text);
+  ownCards = parseCustom(text); fillMine();
   if (active === CUSTOM) {
     makeOrder(); fcInit(); startRound(); rankDeal(); renderFC(false); renderCards();
   }
@@ -1010,13 +1074,13 @@ $('#set-save').addEventListener('click', () => {
   const text = $('#set-editor').value;
   if (text.trim() && !parseCustom(text).length) return msg('No cards found. Put one card per line, like: Acetic acid | CH₃COOH | 4.76', false);
   saveCustom(text);
-  msg(`Saved ${CUSTOM.cards.length} card${CUSTOM.cards.length === 1 ? '' : 's'}. Learn starts a fresh round.`, true);
+  msg(`Saved ${ownCards.length} card${ownCards.length === 1 ? '' : 's'}. Learn starts a fresh round.`, true);
 });
 const copyBtn = $('#copy-set');
 copyBtn.addEventListener('click', () => {
   const text = serializeCards(active.cards), name = active.name;
-  if (CUSTOM.cards.length && !copyBtn.dataset.armed) {
-    copyBtn.dataset.armed = '1'; copyBtn.textContent = `Click again to replace your ${CUSTOM.cards.length} cards`;
+  if (ownCards.length && !copyBtn.dataset.armed) {
+    copyBtn.dataset.armed = '1'; copyBtn.textContent = `Click again to replace your ${ownCards.length} cards`;
     setTimeout(() => { delete copyBtn.dataset.armed; copyBtn.textContent = 'Copy to My cards to edit'; }, 4000);
     return;
   }
@@ -1024,7 +1088,7 @@ copyBtn.addEventListener('click', () => {
   $('#set-editor').value = text;
   saveCustom(text);
   selectSet('custom');
-  msg(`Copied ${CUSTOM.cards.length} cards from ${name}.`, true);
+  msg(`Copied ${ownCards.length} cards from ${name}.`, true);
 });
 
 /* ---------- rank ---------- */
@@ -1040,7 +1104,7 @@ const announce = text => { $('#rank-live').textContent = text; };
 // Cards that can be ranked against each other. Acid sets keep their main
 // solvent only; the bases set is meant as one ladder across solvents.
 function rankPool(s) {
-  const cards = s.cards.filter(c => toNum(c.answer) !== null);
+  const cards = s.cards.filter(c => toNum(c.answer) !== null && (c.kind || 'acid') === s.kind);  // starred bases stay out of an acid ranking
   if (s.kind === 'base') return { cards, solvent: '' };
   const counts = {};
   for (const c of cards) counts[c.solvent] = (counts[c.solvent] || 0) + 1;
@@ -1315,11 +1379,12 @@ function acSetTask(task) {
 // Picking needs the winner levelGap() ahead of the runner-up. Ranking takes molecules with three or
 // more labelled protons (with two it is the same as picking), every pair levelGap() apart.
 const AC_RANK_MIN = 3;
-const acPool = l => l.questions.filter(q => ac.task === 'rank'
+const acPool = l => l.questions.filter(q => (ac.task === 'rank'
   ? q.sites.length >= AC_RANK_MIN && q.minGap >= levelGap()
-  : q.gap >= levelGap());
+  : q.gap >= levelGap()));
 function acDeal() {
-  ac.deck = shuffle(acPool(ac.list)); ac.i = 0; ac.results = []; ac.retry = false;
+  // Not mastered: only the questions not yet answered right
+  ac.deck = shuffle(acPool(ac.list).filter(q => settings.ask === 'all' || acSeen[seenKey(q)] !== 1)); ac.i = 0; ac.results = []; ac.retry = false;
   if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
 }
 // a round of just the questions missed in the round before
@@ -1467,7 +1532,7 @@ function renderAcidic() {
   if (ac.phase === 'empty') {
     const why = ac.task === 'rank'
       ? `Ranking uses molecules with ${AC_RANK_MIN} or more labelled protons, all at least ${levelGap()} pKa unit${levelGap() === 1 ? '' : 's'} apart, and this list has none. Pick another list${settings.level === 'easy' ? ', or switch to Hard' : ''}.`
-      : 'No molecules in this list.';
+      : settings.ask === 'new' && acPool(ac.list).length ? 'You have answered every molecule in this list right. Set Ask to All cards to go through them again.' : 'No molecules in this list.';
     el.innerHTML = `<div class="panel">${acTaskRow()}<p class="help">${why}</p>${settings.level === 'easy' && ac.task === 'rank' ? '<div class="row end"><button type="button" class="btn" data-level="hard">Switch to Hard</button></div>' : ''}</div>`;
     return;
   }
