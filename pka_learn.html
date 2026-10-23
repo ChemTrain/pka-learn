@@ -535,7 +535,11 @@ function serializeCards(cards) {
 let customText = store.get('pka2.custom');
 if (customText == null) customText = store.get('pka.set') || '';  // cards saved by the first version
 const CUSTOM = { id: 'custom', name: 'My cards', kind: 'acid', desc: 'Your own cards, or a set exported from Quizlet.', source: null, cards: parseCustom(customText) };
-const SETS = [...BUILTIN, CUSTOM];
+// the whole pool comes first and is the default; a molecule in two sets is asked once
+const seenAll = new Set();
+const ALL = { id: 'all', name: 'All acids', kind: 'acid', desc: 'Every acid in pKa Learn.', source: null,
+  cards: BUILTIN.filter(s => s.kind === 'acid').flatMap(s => s.cards).filter(c => !seenAll.has(c.id) && seenAll.add(c.id)) };
+const SETS = [ALL, ...BUILTIN, CUSTOM];
 
 function setSolvent(s) {
   if (s.id === 'core') return 'textbook';
@@ -561,7 +565,7 @@ function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active
 
 function selectSet(id) {
   active = SETS.find(s => s.id === id) || SETS[0];
-  store.set('pka2.active', active.id);
+  store.set('pka2.pick', active.id);
   levels = loadLevels(active.id);
   roundNo = store.get('pka2.round.' + active.id) || 1;
   makeOrder(); fcInit(); startRound(); rankDeal();
@@ -1574,7 +1578,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------- boot ---------- */
-selectSet(store.get('pka2.active') || 'core');
+selectSet(store.get('pka2.pick') || 'all');
 acSelect(store.get('pka2.acidic.list') || 'all');
 syncLevel();
 const start = (location.hash || '').slice(1);
