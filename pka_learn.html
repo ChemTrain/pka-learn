@@ -183,7 +183,7 @@ h1 span { font-weight: 500; color: var(--muted); }
 .opt[disabled] { cursor: default; }
 .opt .key { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; font: 600 12px var(--f-mono); color: var(--muted); }
 .opt .val { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
-.opt .val.num { font: 600 21px var(--f-mono); font-variant-numeric: tabular-nums; }
+.opt .val.num { font: 600 21px var(--f-mono); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
 .opt .val small { font: 400 13px var(--f-mono); color: var(--muted); }
 .opt .othumb { display: flex; justify-content: flex-start; }
 .opt.rich { align-items: flex-start; }
