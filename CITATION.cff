@@ -4,7 +4,7 @@ title: "pKa Learn"
 type: software
 authors:
   - family-names: Bindschaedler
-    given-names: Quentin
+    given-names: Quentin P.
     affiliation: ChemTrain
 abstract: "A Quizlet-style trainer for the pKa values of organic acids and bases, in one HTML file."
 url: "https://chemtrain.github.io/pka-learn/pka_learn.html"

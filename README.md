@@ -30,7 +30,7 @@ Structures are drawn with [RDKit](https://www.rdkit.org).
 
 If you use pKa Learn in a course, a worksheet or a paper, please cite it:
 
-> Bindschaedler, Q. *pKa Learn* (2026). ChemTrain. https://github.com/ChemTrain/pka-learn
+> Bindschaedler, Q. P. *pKa Learn* (2026). ChemTrain. https://github.com/ChemTrain/pka-learn
 
 GitHub's **Cite this repository** button (from `CITATION.cff`) gives the same reference in APA and BibTeX.
 
