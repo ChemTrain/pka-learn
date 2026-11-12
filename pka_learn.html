@@ -387,7 +387,7 @@ sup.us { font-size: .7em; line-height: 0; vertical-align: .5em; }
         <div class="seg" role="group" aria-label="Questions" data-opt="qtype"><button type="button" data-val="mixed" title="Multiple choice until a card is familiar, then typed">Mixed</button><button type="button" data-val="mc">Choices</button><button type="button" data-val="written">Typed</button></div>
       </div>
       <div class="field" data-for="learn">Answer with
-        <div class="seg" role="group" aria-label="Answer with" data-opt="dir"><button type="button" data-val="all" title="pKa and name questions in turn">All</button><button type="button" data-val="value">pKa value</button><button type="button" data-val="term" title="Multiple choice">Name</button></div>
+        <div class="seg" role="group" aria-label="Answer with" data-opt="dir"><button type="button" data-val="all" title="Every question type, in turn. Each button turns its own type on or off">All</button><button type="button" data-val="value">pKa value</button><button type="button" data-val="term" title="Multiple choice">Name</button></div>
       </div>
       <div class="field" data-for="learn">Typed answers within
         <div class="seg" role="group" aria-label="Typed answers count within" data-opt="tol"><button type="button" data-val="0">Exact</button><button type="button" data-val="0.5">± 0.5</button><button type="button" data-val="1">± 1</button><button type="button" data-val="2">± 2</button></div>
@@ -646,7 +646,20 @@ let active = null, levels = loadAllLevels(), roundNo = 1;
 // "All" takes the question types in turn
 const DIRS = ['value', 'term'];
 let dirTurn = Math.floor(Math.random() * DIRS.length);
-const pickDir = () => settings.dir === 'all' ? DIRS[dirTurn++ % DIRS.length] : settings.dir;
+// Answer with: any mix of the question types. Each button turns its type on or off and All turns them all on;
+// the types that are on are asked in turn. (Saved settings from before keep their single type, or all of them.)
+const DIR_ALL = DIRS, DIR_KNOWN = DIRS;
+if (!Array.isArray(settings.dirs) || !settings.dirs.some(d => DIR_KNOWN.includes(d)))
+  settings.dirs = settings.dir === 'all' || !DIR_KNOWN.includes(settings.dir) ? [...DIR_ALL] : [settings.dir];
+settings.dirs = DIR_KNOWN.filter(d => settings.dirs.includes(d));
+const pickDir = () => settings.dirs[dirTurn++ % settings.dirs.length];
+const dirPressed = v => v === 'all' ? DIR_ALL.every(d => settings.dirs.includes(d)) : settings.dirs.includes(v);
+// the types on after a click on v, or null when the click changes nothing (the last type on stays on)
+function toggleDir(v) {
+  const now = settings.dirs;
+  const next = DIR_KNOWN.filter(d => v === 'all' ? now.includes(d) || DIR_ALL.includes(d) : d === v ? !now.includes(d) : now.includes(d));
+  return next.length && next.join() !== now.join() ? next : null;
+}
 let order = [], round = null, cur = null, phase = 'question', view = 'learn';
 const lvl = id => levels[id] || 0;
 const loadLevels = () => levels;
@@ -988,6 +1001,7 @@ const OPT_VALUE = { qtype: v => v, dir: v => v, tol: parseFloat, shuffle: v => v
 function syncOptions() {
   for (const g of document.querySelectorAll('.optbar [data-opt]'))
     for (const b of g.querySelectorAll('button')) b.setAttribute('aria-pressed', String(String(settings[g.dataset.opt]) === b.dataset.val));
+  for (const b of document.querySelectorAll('.optbar [data-opt="dir"] button')) b.setAttribute('aria-pressed', String(dirPressed(b.dataset.val)));
 }
 // A new difficulty brings a new card, so a question cannot be looked at again on the easier level.
 function swapQuestion() {
@@ -1010,6 +1024,13 @@ function refreshQuestion() { if (phase === 'question' && cur) cur.answered ? adv
 document.querySelector('.optbar').addEventListener('click', e => {
   const b = e.target.closest('[data-opt] button');
   if (!b) return;
+  if (b.closest('[data-opt]').dataset.opt === 'dir') {
+    const next = toggleDir(b.dataset.val);
+    if (!next) return;
+    settings.dirs = next; saveSettings(); syncOptions();
+    if (cur && !settings.dirs.includes(cur.dir)) refreshQuestion();  // the question showing is of a type now off
+    return;
+  }
   const key = b.closest('[data-opt]').dataset.opt, val = OPT_VALUE[key](b.dataset.val);
   if (settings[key] === val) return;
   settings[key] = val; saveSettings(); syncOptions();
