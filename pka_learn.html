@@ -572,47 +572,64 @@ function mergeDocs(doc, changes) {
    - The All pool of an app: a card waits before it comes back, longer the better it is known
      (WAIT_ALL questions, by its level), and cards not yet mastered come up more often than mastered ones.
    Levels: three right answers master a card (Not studied → Learning → Familiar → Mastered);
-   a wrong answer moves it back one step, never below Learning. */
+   a wrong answer moves it back one step, never below Learning.
+   The other quiz tabs (Most acidic, Which is which, Removed?, Plan, the Reactivity quizzes, Count, Name) work the
+   same way through deal/step/mark: no rounds of eight, a question counts as done after three right answers. */
 window.CTLearn = (function () {
   var WAIT_SET = 3;                    // a set: not one of the last 3 cards asked (fewer in a tiny set)
-  var WAIT_ALL = [0, 10, 30, 80];      // All: questions before a card can come back, by its level
+  var WAIT_ALL = [10, 10, 30, 80];     // All: questions before a card can come back, by its level
   var MASTERED_WEIGHT = 0.25;          // All, Ask "All cards": a mastered card is drawn a quarter as often
 
   function isAll(set) { return !!set && (set.id === 'all' || /^all-/.test(String(set.id))); }
   function after(before, ok) { return ok ? Math.min(3, before + 1) : Math.max(1, before - 1); }
 
-  // o: { cards, order, lvl, ask ('all' | anything else: not mastered only), shuffle, all, round, not }
-  // round.seen maps a card id to the question number it was last asked at. Returns the card, or null when done.
+  // o: { cards, order, lvl, ask ('all' | anything else: not mastered only), shuffle, all, round, not, key }
+  // round.seen maps a card's key (its id) to the question number it was last asked at. Returns the card, or null when done.
   function next(o) {
-    var lvl = o.lvl, round = o.round, seen = round.seen || (round.seen = new Map());
-    var pool = o.cards.filter(function (c) { return o.ask === 'all' || lvl(c.id) < 3; });
+    var key = o.key || function (c) { return c.id; };
+    var lvl = function (c) { return o.lvl(key(c)); }, round = o.round, seen = round.seen || (round.seen = new Map());
+    var pool = o.cards.filter(function (c) { return o.ask === 'all' || lvl(c) < 3; });
     if (!pool.length) return null;
     if (o.not && pool.length > 1) pool = pool.filter(function (c) { return c !== o.not; });
     var n = round.queue.length, pick;
     if (!o.shuffle) {  // Set order: the next card after the last one asked
       var order = o.order.filter(function (c) { return pool.indexOf(c) >= 0; });
       var last = -1;
-      order.forEach(function (c, i) { if (seen.has(c.id) && (last < 0 || seen.get(c.id) > seen.get(order[last].id))) last = i; });
+      order.forEach(function (c, i) { if (seen.has(key(c)) && (last < 0 || seen.get(key(c)) > seen.get(key(order[last])))) last = i; });
       pick = order[(last + 1) % order.length];
     } else {
-      var wait = function (c) { return Math.min(pool.length - 1, o.all ? WAIT_ALL[lvl(c.id)] : WAIT_SET); };
-      var since = function (c) { return seen.has(c.id) ? n - seen.get(c.id) : Infinity; };
+      var wait = function (c) { return Math.min(pool.length - 1, o.all ? WAIT_ALL[lvl(c)] : WAIT_SET); };
+      var since = function (c) { return seen.has(key(c)) ? n - seen.get(key(c)) : Infinity; };
       var free = pool.filter(function (c) { return since(c) > wait(c); });
       if (!free.length) {  // every card asked too recently: the one closest to its turn
         var best = Infinity;
         pool.forEach(function (c) { var d = wait(c) - since(c); if (d < best) best = d; });
         free = pool.filter(function (c) { return wait(c) - since(c) === best; });
       }
-      var w = function (c) { return o.all && lvl(c.id) === 3 ? MASTERED_WEIGHT : 1; };
+      var w = function (c) { return o.all && lvl(c) === 3 ? MASTERED_WEIGHT : 1; };
       var total = free.reduce(function (s, c) { return s + w(c); }, 0), r = Math.random() * total;
       pick = free[free.length - 1];
       for (var i = 0; i < free.length; i++) { r -= w(free[i]); if (r < 0) { pick = free[i]; break; } }
     }
-    seen.set(pick.id, n);
+    seen.set(key(pick), n);
     return pick;
   }
 
-  return { next: next, isAll: isAll, after: after, WAIT_SET: WAIT_SET, WAIT_ALL: WAIT_ALL };
+  // A quiz tab as a stream: st.deck holds the questions asked so far, st.i the one on screen.
+  // q: { pool, key, rec (key -> right answers so far; 3 = done), ask, all, not }. Each returns the question, or null.
+  function pickInto(st, q, not) {
+    var c = next({ cards: q.pool, key: q.key, lvl: function (k) { return Math.min(3, +q.rec[k] || 0); }, ask: q.ask,
+      shuffle: true, all: q.all, round: { queue: st.deck, seen: st.seenAt }, not: not });
+    if (c) st.deck[st.i] = c;
+    return c;
+  }
+  function deal(st, q, not) { st.deck = []; st.i = 0; st.results = []; st.retry = false; st.seenAt = new Map(); return pickInto(st, q, not); }
+  function step(st, q) { if (!st.seenAt) return deal(st, q); st.i++; return pickInto(st, q); }
+  function swap(st, q) { return st.seenAt ? pickInto(st, q, st.deck[st.i]) : deal(st, q); }  // another question in place of the one on screen
+  function mark(rec, k, ok) { rec[k] = after(+rec[k] || 0, ok); }
+  var done = function (rec, k) { return (+rec[k] || 0) >= 3; };
+
+  return { next: next, isAll: isAll, after: after, deal: deal, step: step, swap: swap, mark: mark, done: done, WAIT_SET: WAIT_SET, WAIT_ALL: WAIT_ALL };
 })();
 </script>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="ct-logo" viewBox="32.22 39.33 54.89 76.62"><g transform="translate(2.341,2.04)"><g transform="matrix(0.248,0,0,0.248,33.889,62.61)"><path fill="#939598" d="M -14.552,187.031 H 197.115 v 11.759 H -14.552 Z" stroke-width="5.88" /><path fill="#231f20" d="M 20.726,145.874 H 191.235 v 29.398 H 20.726 Z" stroke-width="5.88" /><circle fill="#58595b" cx="26.599" cy="175.272" r="17.639" stroke-width="5.88" /><circle fill="#58595b" cx="61.877" cy="175.272" r="17.639" stroke-width="5.88" /><circle fill="#a0041e" cx="26.599" cy="175.272" r="8.819" stroke-width="5.88" /><circle fill="#a0041e" cx="61.877" cy="175.272" r="8.819" stroke-width="5.88" /><path fill="#dd2e44" d="M 14.846,181.151 H -8.672 c -5.88,0 -8.819,-2.94 0,-11.759 L 14.846,145.874 c 5.88,-5.88 11.759,-11.765 11.759,0 v 23.519 c 0,11.759 -0.006,11.759 -11.759,11.759 z" stroke-width="5.88" /><path fill="#231f20" d="m 32.485,104.716 c 0,19.479 -7.896,35.278 -17.639,35.278 -9.743,0 -17.639,-15.799 -17.639,-35.278 0,-19.485 7.896,-35.278 17.639,-35.278 9.743,0 17.639,15.793 17.639,35.278 z" stroke-width="5.88" /><path fill="#6d6e71" d="M 50.124,75.318 H 26.605 L 14.846,28.281 h 47.037 z" stroke-width="5.88" /><path fill="#414042" d="m 138.318,134.114 a 11.759,11.759 0 0 1 -11.759,11.759 H 20.726 A 11.759,11.759 0 0 1 8.966,134.114 V 75.318 A 11.759,11.759 0 0 1 20.726,63.559 H 126.559 a 11.759,11.759 0 0 1 11.759,11.759 z" stroke-width="5.88" /><path fill="#c1694f" d="m 61.883,139.994 a 5.88,5.88 0 1 1 -11.759,0 V 63.559 a 5.88,5.88 0 0 1 11.759,0 z m 35.278,0 a 5.88,5.88 0 1 1 -11.759,0 V 63.559 a 5.88,5.88 0 1 1 11.759,0 z" stroke-width="5.88" /><path fill="#808285" d="m 197.115,139.994 a 5.88,5.88 0 0 1 -5.88,5.88 H 26.605 a 5.88,5.88 0 1 1 0,-11.759 H 191.235 a 5.88,5.88 0 0 1 5.88,5.88 z" stroke-width="5.88" /><circle fill="#58595b" cx="161.831" cy="169.392" r="23.519" stroke-width="5.88" /><circle fill="#58595b" cx="114.794" cy="169.392" r="23.519" stroke-width="5.88" /><circle fill="#a0041e" cx="161.831" cy="169.392" r="11.759" stroke-width="5.88" /><circle fill="#a0041e" cx="114.794" cy="169.392" r="11.759" stroke-width="5.88" /><path fill="#414042" d="M 56.003,4.762 H 20.726 a 5.88,5.88 0 0 0 -5.88,5.88 V 28.281 H 61.883 V 10.642 a 5.88,5.88 0 0 0 -5.88,-5.88 z" stroke-width="5.88" /><path fill="#be1931" d="m 120.679,28.281 h 70.556 V 134.114 H 120.679 Z" stroke-width="5.88" /><path fill="#a0041e" d="m 197.115,22.401 a 5.88,5.88 0 0 1 -5.88,5.88 H 120.679 a 5.88,5.88 0 1 1 0,-11.759 h 70.556 a 5.88,5.88 0 0 1 5.88,5.88 z" stroke-width="5.88" /><path fill="#ea596e" d="m 132.439,92.957 h 47.037 v 29.398 h -47.037 z" stroke-width="5.88" /><path fill="#f4900c" d="m 161.837,175.272 h -47.037 c -0.747,0 -1.488,-0.141 -2.181,-0.417 L 84.267,163.512 H 44.244 a 5.88,5.88 0 1 1 0,-11.759 H 85.402 c 0.753,0 1.488,0.141 2.187,0.417 l 28.34,11.342 h 45.908 a 5.88,5.88 0 1 1 0,11.759 z" stroke-width="5.88" /><path fill="#55acee" d="m 179.476,45.92 a 5.88,5.88 0 0 0 -5.88,-5.88 h -35.278 a 5.88,5.88 0 0 0 -5.88,5.88 v 29.398 a 5.88,5.88 0 0 0 5.88,5.88 h 35.278 a 5.88,5.88 0 0 0 5.88,-5.88 z" stroke-width="5.88" /></g><g transform="matrix(0,1.017,-1.017,0,55.325,25.297)" fill="#000000" stroke="#ee2b2b"><path d="M 29.775,13.877 V 9.642" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="#000000" stroke="#ee2b2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.889,-0.889,0,63.364,25.187)" stroke="#eeee2b"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#eeee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.953,-0.953,0,56.409,17.715)" stroke="#ee8c2b"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#ee8c2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.826,-0.826,0,63.919,18.133)" stroke="#8cee2b"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#8cee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.762,-0.762,0,70.05,25.142)" stroke="#2bee2b"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#2bee2b" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.699,-0.699,0,70.403,19.676)" stroke="#2bee8c"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#2bee8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.635,-0.635,0,75.406,26.648)" stroke="#2beeee"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#2beeee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.572,-0.572,0,76.379,22.292)" stroke="#2b8cee"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#2b8cee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.508,-0.508,0,80.543,28.097)" stroke="#2b2bee"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#2b2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.445,-0.445,0,81.624,25.126)" stroke="#8c2bee"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#8c2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.381,-0.381,0,84.347,30.3)" stroke="#ee2bee"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#ee2bee" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g><g transform="matrix(0,0.318,-0.318,0,85,28.218)" stroke="#ee2b8c"><path d="M 29.775,13.877 V 9.642" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 31.095,13.105 V 10.414" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 33.444,15.986 29.775,13.877" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 37.114,13.877 -3.669,2.109" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 35.793,13.105 -2.349,1.355" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 37.114,9.642 V 13.877" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,7.533 3.669,2.109" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="m 33.444,9.059 2.349,1.355" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /><path d="M 29.775,9.642 33.444,7.533" fill="none" stroke="#ee2b8c" stroke-width="0.532" stroke-linecap="round" stroke-linejoin="miter" /></g></g></symbol></svg>
@@ -1691,9 +1708,10 @@ const SITE_LISTS = (() => {
 })();
 const AC_TASKS = { pick: 'Pick the most acidic', rank: 'Rank them all' };
 const ac = { list: null, task: store.get('pka2.acidic.task') === 'rank' ? 'rank' : 'pick', deck: [], i: 0, cur: null, phase: 'question', results: [], streak: 0 };
-const acSeen = store.get('pka2.acidic') || {};  // question id (prefixed "rank|" for ranking) -> 1 if the last answer was right, else 0
+const acSeen = store.get('pka2.acidic') || {};  // question id (prefixed "rank|" for ranking) -> right answers so far (3 = done; a miss takes one back)
 const seenKey = q => (ac.task === 'rank' ? 'rank|' : '') + q.id;
 const ORDINAL = ['1st', '2nd', '3rd', '4th'];
+const quizPill = v => { const l = Math.min(3, +v || 0); return `<span class="pill" data-l="${l}">${LEVEL_NAMES[l]}</span>`; };
 
 function acSelect(id) {
   ac.list = SITE_LISTS.find(l => l.id === id) || SITE_LISTS[0];
@@ -1711,10 +1729,10 @@ const AC_RANK_MIN = 3;
 const acPool = l => l.questions.filter(q => (ac.task === 'rank'
   ? q.sites.length >= AC_RANK_MIN && q.minGap >= levelGap()
   : q.gap >= levelGap()));
+// no rounds: one molecule after another, picked by shared/learn_pick.js (Not mastered: until each is right three times)
+const acQuiz = () => ({ pool: acPool(ac.list), key: seenKey, rec: acSeen, ask: settings.ask, all: ac.list.id === 'all' });
 function acDeal() {
-  // Not mastered: only the questions not yet answered right
-  ac.deck = notFirst(shuffle(acPool(ac.list).filter(q => settings.ask === 'all' || acSeen[seenKey(q)] !== 1)), ac.cur && ac.cur.q); ac.i = 0; ac.results = []; ac.retry = false;
-  if (ac.deck.length) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
+  if (CTLearn.deal(ac, acQuiz(), ac.cur && ac.cur.q)) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
 }
 // a round of just the questions missed in the round before
 function acRetry() {
@@ -1736,7 +1754,7 @@ const siteP = (c, j) => parseFloat(c.q.sites[c.order[j]].p);
 function acRecord(c) {
   ac.results.push({ q: c.q, ok: c.ok });
   ac.streak = c.ok ? ac.streak + 1 : 0;
-  acSeen[seenKey(c.q)] = c.ok ? 1 : 0; store.set('pka2.acidic', acSeen);
+  CTLearn.mark(acSeen, seenKey(c.q), c.ok); store.set('pka2.acidic', acSeen);
   renderAcidic(); renderAcSide();
   const b = $('#ac-next'); if (b) b.focus({ preventScroll: true });
 }
@@ -1759,10 +1777,7 @@ function acCheck() {
   acRecord(c);
 }
 function acNext() {
-  ac.i++;
-  if (ac.i < ac.deck.length) return acBuild();
-  ac.phase = 'summary'; renderAcidic();
-  const b = $('#ac-retry') || $('#ac-again'); if (b) b.focus({ preventScroll: true });
+  if (CTLearn.step(ac, acQuiz())) acBuild(); else { ac.phase = 'empty'; renderAcidic(); }
 }
 const siteValue = (s, solv) => `${s.est ? '<span class="approx">≈</span>' : ''}${chip(s.p, solv)}`;
 // 1-based rank of letter j by pKa (ties share the first rank)
@@ -1852,7 +1867,7 @@ function acFeedback(c) {
   }
   return `<div class="feedback" aria-live="polite">${lines}
       ${q.note ? `<p class="note">${esc(q.note)}</p>` : ''}
-      <div class="row end"><button type="button" class="btn" id="ac-next">${ac.i + 1 < ac.deck.length ? 'Next molecule' : 'See results'}</button></div>
+      <div class="row end"><button type="button" class="btn" id="ac-next">Next molecule</button></div>
     </div>`;
 }
 
@@ -1861,7 +1876,7 @@ function renderAcidic() {
   if (ac.phase === 'empty') {
     const why = ac.task === 'rank'
       ? `Ranking uses molecules with ${AC_RANK_MIN} or more labelled protons, all at least ${levelGap()} pKa unit${levelGap() === 1 ? '' : 's'} apart, and this list has none. Pick another list${settings.level === 'easy' ? ', or switch to Hard' : ''}.`
-      : settings.ask === 'new' && acPool(ac.list).length ? 'You have answered every molecule in this list right. Set Ask to All cards to go through them again.' : 'No molecules in this list.';
+      : settings.ask === 'new' && acPool(ac.list).length ? 'You have answered every molecule in this list right three times. Set Ask to All cards to go through them again.' : 'No molecules in this list.';
     el.innerHTML = `<div class="panel">${acTaskRow()}<p class="help">${why}</p>${settings.level === 'easy' && ac.task === 'rank' ? '<div class="row end"><button type="button" class="btn" data-level="hard">Switch to Hard</button></div>' : ''}</div>`;
     return;
   }
@@ -1877,7 +1892,7 @@ function renderAcidic() {
       <button type="button" class="btn" id="ac-check"${c.seq.length >= n - 1 ? '' : ' disabled'}>Check order</button></div>` : '';
   el.innerHTML = `<div class="panel">
       ${acTaskRow()}
-      <div class="qhead"><div class="qtop"><p class="eyebrow">${c.task === 'rank' ? 'Rank the protons' : 'Most acidic'}${ac.retry ? ' · missed' : ''} · ${ac.i + 1} of ${ac.deck.length}</p><div class="tags">${tags}</div></div>
+      <div class="qhead"><div class="qtop"><p class="eyebrow">${c.task === 'rank' ? 'Rank the protons' : 'Most acidic'}</p><div class="tags">${tags}${quizPill(acSeen[seenKey(q)])}</div></div>
         <div class="qmain">
           <div class="qtext"><h2 class="term">${esc(q.name)}</h2>${q.formula ? `<p class="formula">${esc(q.formula)}</p>` : ''}</div>
           <figure class="struct site-struct">${siteSVG(c, 2.4, 260, 640)}</figure>
@@ -1904,11 +1919,11 @@ function acSummaryHTML() {
 
 function renderAcSide() {
   $('#ac-lists').innerHTML = SITE_LISTS.map(l => {
-    const qs = acPool(l), n = qs.length, right = qs.filter(q => acSeen[seenKey(q)] === 1).length;
+    const qs = acPool(l), n = qs.length, right = qs.filter(q => CTLearn.done(acSeen, seenKey(q))).length;
     const tried = qs.some(q => seenKey(q) in acSeen);
     return `<button type="button" class="set" data-list="${l.id}" aria-pressed="${l === ac.list}" title="${esc(l.desc)}">
         <span class="nm">${esc(l.name)}</span>
-        <span class="meta"><span>${n} molecules</span><span>${tried ? `${right} right` : 'not tried'}</span></span>
+        <span class="meta"><span>${n} molecules</span><span>${tried ? `${right} mastered` : 'not tried'}</span></span>
         <span class="mini"><i style="width:${n ? right / n * 100 : 0}%"></i></span>
       </button>`;
   }).join('');
